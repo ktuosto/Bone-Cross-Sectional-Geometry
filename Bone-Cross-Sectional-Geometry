@@ -1,0 +1,44 @@
+---
+title: "Bone Cross-Sectional Geometry"
+author: "Kristen Tuosto"
+date: "2023-04-11"
+---
+```{r}
+#Read  in data
+df <- read.csv("BoneCSG.csv")
+```
+
+#Code for bone cross-sectional geometry when measurements are collected by hand or from r-xays (Ellipse Model Method)
+```{r}
+#See README for cross-sectional geometry measurments 
+
+#Total area (TA)
+TA <- pi*(df$AP*df$ML)/4 
+
+#Medullary area (MA)
+MA <- pi*(df$ap*df$ml)/4
+
+#Cortical bone area (CA)
+CA <- pi/4*((df$AP*df$ML)-(df$ap*df$ml)) # Tensile/compressive bone strength
+
+# % Cortical bone area (%CA)
+P.CA <- CA/TA*100
+
+#Second moment of area M-L (x) axis (Ix)
+Ix <- pi/64*((df$AP^3*df$ML)-(df$ap^3*df$ml)) # Anteroposterior bone bending strength/rigidity
+
+#Second moment of area A-P (y) axis (Iy)
+Iy <- pi/64*((df$AP*df$ML^3)-(df$ap*df$ml^3)) # Mediolateral bone bending strength/rigidity
+
+#Polar moment of area
+J <- Ix + Iy # Bone robusticity/torsional strength
+
+#Section modulus (Ix)
+Zx <- Ix/(df$AP/2) # Estimate of anteroposterior bone bending strength
+
+#Section modulus (Iy)
+Zy <- Iy/(df$ML/2) # Estimate of mediolateral bone bending strength
+
+#Section modulus (Zp)
+Zp <- J/((df$AP+df$ML)/4) # Torsional bone strength
+```
