@@ -327,9 +327,6 @@ ggplotly(humerus_P.CA) # Interactive plot
 ```
 
 
-#General notes for the humerus: 
-
-
 #femur 
 ```{r}
 TA_femur <- SMA_fun(femur, femur$TA)
@@ -439,12 +436,12 @@ ggplotly(femur_P.CA) # Interactive plot
 
 ```
 
-#General notes for the femur: 
 
 #tibia 
-#Added a correction factor (CF) for the x-ray tibia (CF was determine with a n of 9, ages 3.31-14.05, essentially the yongest to the second oldest in the microCT tibia sample (oldest is 14.59))
+#Added a correction factor (CF) for the x-ray tibia (CF was determine with a n of 9, ages 3.31-14.05, essentially the youngest to the second oldest in the microCT tibia sample (oldest is 14.59)).
 
-#CF was determine by: microCT measurement(s)/x-ray measurement(s) for the bones we had both microCT and x-ray images for, and than we took the mean of those results and applied them to the individuals where we have x-ray images only 
+#CF was determine by: microCT measurement(s)/x-ray measurement(s) for the bones we had both microCT and x-ray images for, and than we took the mean of those results and applied them to the individuals where we have x-ray images only.
+
 ```{r}
 TA_tibia <- SMA_fun(tibia, tibia$TA)
 
@@ -566,7 +563,7 @@ ggplotly(tibia_P.CA) # Interactive plot
 #General notes about the tibia: I think the CF makes the x-ray images fit better with the microCT.
 
 
-#radius - just to see, however, the radius shape is very triangluar 
+#radius - just to see, however, the radius shape is very triangular, which violates the EMM assumption of cirularity. 
 ```{r}
 TA_radius <- SMA_fun(radius, radius$TA)
 
