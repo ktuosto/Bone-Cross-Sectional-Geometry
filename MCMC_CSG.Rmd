@@ -71,6 +71,7 @@ tibia <- tibia %>% drop_na(DIL)
 
 library(MasterBayes)
 
+# 'MasterBayes' is no longer hosted on CRAN, but on a repository in GitHub and you can also install the the package from the archive of CRAN.
 
 # Sort the pedigree data
 ordered_pedigree <- orderPed(pedigree)
@@ -225,319 +226,6 @@ moduli_mcmc_multiple <- function(df, res_vars, pred_var_name) {
 }
 ```
 
-###CI plot
-```{r CI plot function}
-plot.estimates <- function(x) {
-  if (class(x) != "summary.mcmc")
-    x <- summary(x)
-  n <- dim(x$statistics)[1]
-  par(mar=c(2, 7, 4, 1))
-  plot(x$statistics[,1], n:1,
-       yaxt="n", ylab="",
-       xlim=range(x$quantiles)*1.2,
-       pch=19,
-       main="Posterior means and 95% credible intervals")
-  grid()
-  axis(2, at=n:1, rownames(x$statistics), las=2)
-  arrows(x$quantiles[,1], n:1, x$quantiles[,5], n:1, code=0)
-  abline(v=0, lty=2)
-}
-```
-
-###Autocorralation plots
-```{r autocorralation plot function} 
-plot.acfs <- function(x) {
-  n <- dim(x)[2]
-  par(mfrow=c(ceiling(n/2),2), mar=c(3,2,3,0))
-  for (i in 1:n) {
-    acf(x[,i], lag.max=100, main=colnames(x)[i])
-    grid()
-  }
-}
-
-```
-
-###MCMC malleable model function
-```{r MCMC}
-run_mcmc_analysis <- function(response_var_tansformation, rain_var, rank_var, fdml_transformation, data, df_name, prior, 
-                              nitt = 500000, thin = 50, burnin = 55500, verbose = FALSE) {
-  
-  # Run MCMCglmm model
-  model_result <- MCMCglmm(as.formula(paste0(response_var_tansformation, " ~ ", fdml_transformation, " + Sex + ", 
-                           rain_var, " + ", rank_var)),
-                           random = ~ animal, 
-                           ginv = list(animal = Ainv),
-                           prior = prior,
-                           data = data,
-                           nitt = nitt, 
-                           thin = thin, 
-                           burnin = burnin, 
-                           verbose = verbose)
-  
-  # Plot the solutions and save to PDF
-  pdf(paste0(df_name, "_", response_var_tansformation, "_", rain_var, "_", rank_var, "_plot.pdf"))
-  plot(model_result$Sol)
-  dev.off()
-
-  
-  # Plot the variance components
-  plot(model_result$VCV)
-  
-  # Print summary and save to text file
-  sink(paste0(df_name, "_", response_var_tansformation, "_", rain_var, "_", rank_var, ".txt"))
-  print(summary(model_result))
-  sink()
-  
-  # Return the model result and other diagnostics
-  list(
-    model = model_result,
-    effective_size_sol = effectiveSize(model_result[["Sol"]]),
-    effective_size_vcv = effectiveSize(model_result[["VCV"]])
-  )
-  print(summary(model_result))
-  return(model_result)
-}
-
-```
-
-###Diagnostic function
-```{r diagnostic}
-run_diagnostics <- function(model_result) {
-  
-  # Heidelberg stationarity test
-  heidel_vcv <- heidel.diag(model_result[["VCV"]])
-  heidel_sol <- heidel.diag(model_result[["Sol"]])
-  
-  raftery_res <- raftery.diag(model_result, q=0.025, r=0.005, s=0.95, converge.eps=0.001)
-  
-  # Geweke diagnostics
-  geweke_sol_diag <- geweke.diag(model_result$Sol)
-  geweke_sol_plot <- geweke.plot(model_result$Sol)
-  
-  geweke_vcv_diag <- geweke.diag(model_result$VCV)
-  geweke_vcv_plot <- geweke.plot(model_result$VCV)
-  
-  # Autocorrelation diagnostics
-  acf_sol_plot <- plot.acfs(model_result$Sol)
-  acf_vcv_plot <- plot.acfs(model_result$VCV)
-  
-  autocorr_vcv_diag <- autocorr.diag(model_result$VCV)
-  autocorr_sol_diag <- autocorr.diag(model_result$Sol)
-  
-  # CI plots
-  ci_sol_plot <- plot.estimates(model_result$Sol)
-  ci_vcv_plot <- plot.estimates(model_result$VCV)
-  
-  # Return results in a list for further analysis
-  list(
-    heidel_vcv = heidel_vcv,
-    heidel_sol = heidel_sol,
-    raftery = raftery_res,
-    geweke_sol_diag = geweke_sol_diag,
-    geweke_sol_plot = geweke_sol_plot,
-    geweke_vcv_diag = geweke_vcv_diag,
-    geweke_vcv_plot = geweke_vcv_plot,
-    acf_sol_plot = acf_sol_plot,
-    acf_vcv_plot = acf_vcv_plot,
-    autocorr_vcv_diag = autocorr_vcv_diag,
-    autocorr_sol_diag = autocorr_sol_diag,
-    ci_sol_plot = ci_sol_plot,
-    ci_vcv_plot = ci_vcv_plot
-  )
-}
-
-# Example of how to use the function
-# diagnostic_results_test <- run_diagnostics(model_test)
-# 
-# diagnostic_results_test
-```
-
-###Heritability function
-```{r heritability}
-compute_posterior_heritability <- function(model_result) {
-  
-  # Compute posterior mode of the variance components
-  vcv_mode <- posterior.mode(model_result$VCV)
-  
-  # Calculate 95% HPD interval for the variance components
-  vcv_hpd <- HPDinterval(model_result$VCV)
-  
-  # Calculate heritability based on the posterior distributions of the animal and units variance components
-  heritability_posterior <- model_result$VCV[, "animal"] / 
-                            (model_result$VCV[, "animal"] + model_result$VCV[, "units"])
-  
-  # Compute posterior mode of heritability
-  heritability_mode <- posterior.mode(heritability_posterior)
-  print(heritability_mode)
-  
-  # Calculate 95% HPD interval for heritability
-  heritability_hpd <- HPDinterval(heritability_posterior, 0.95)
-  print(heritability_hpd)
-  
-  # Plot the posterior distribution of heritability
-  plot(heritability_posterior, main = "Posterior Distribution of Heritability")
-  
-  # Return results in a list for further analysis
-  list(
-    vcv_mode = vcv_mode,
-    vcv_hpd = vcv_hpd,
-    heritability_posterior = heritability_posterior,
-    heritability_mode = heritability_mode,
-    heritability_hpd = heritability_hpd
-  )
-}
-
-# Example of how to use the function
-# heritability_results <- compute_posterior_heritability(model_test)
-
-```
-
-###Run and diagnostic MCMC function
-```{r r-hat test}
-run_and_diagnose_mcmc <- function(response_var_transformation, rain_var, rank_var, fdml_transformation, 
-                                  num_runs = 5, prior, data) {
-  library(coda)
-  
-  # Run MCMC model multiple times
-  fits <- list()
-  for (i in 1:num_runs) {
-    formula_str <- paste0(response_var_transformation," ~ ", fdml_transformation, " + ", 
-                          rain_var, " + ", rank_var, " + Sex")
-    fits[[i]] <- MCMCglmm(as.formula(formula_str),
-                          random = ~ animal, 
-                          ginv = list(animal = Ainv),
-                          prior = prior,
-                          data = data,
-                          nitt = 500000, 
-                          thin = 50, 
-                          burnin = 25500, 
-                          verbose = FALSE)
-  }
-  
-   # Pool solutions and VCVs
-  mcmc_list_Sol <- mcmc.list(lapply(fits, function(x) x$Sol))
-  mcmc_list_VCV <- mcmc.list(lapply(fits, function(x) x$VCV))
-  
-  # Gelman-Rubin diagnostic plots and diagnostics
-  gelman.plot(mcmc_list_Sol)
-  sol_diag <- gelman.diag(mcmc_list_Sol)
-  print(sol_diag)
-  
-  gelman.plot(mcmc_list_VCV)
-  vcv_diag <- gelman.diag(mcmc_list_VCV)
-  print(vcv_diag)
-  
-  # Trace plots
-  par(mfrow = c(8, 2), mar = c(2, 1, 1, 1))
-  plot(mcmc_list_Sol, ask = F, auto.layout = F)
-  
-  par(mfrow = c(8, 2), mar = c(2, 1, 1, 1))
-  plot(mcmc_list_VCV, ask = F, auto.layout = F)
-  
-  # Return the diagnostics for further analysis
-  list(
-    sol_diag = sol_diag,
-    vcv_diag = vcv_diag
-  )
-}
-
-```
-
-###Posterior predictive check function
-```{r post pred check}
-
-posterior_predictive_check <- function(model, data_name, response_var, log_transform = FALSE) {
-  
-  # Number of simulations
-  nsimulations <- 100
-  sims <- vector("list", nsimulations)
-  
-  # Simulating data from the model
-  for (i in 1:nsimulations) {
-    sims[[i]] <- simulate(model)
-  }
-  
-  # Extracting observed data and applying log transformation if needed
-  observed_data <- if(log_transform) log(get(data_name)[[response_var]]) else get(data_name)[[response_var]]
-  
-  # Calculating observed statistics
-  observed_min <- min(observed_data)
-  observed_max <- max(observed_data)
-  observed_mean <- mean(observed_data)
-  
-  # Calculating statistics from simulated data
-  simulated_mins <- sapply(sims, min)
-  simulated_maxs <- sapply(sims, max)
-  simulated_means <- sapply(sims, mean)
-  
-  # Plotting histograms
-  hist(observed_data, freq=FALSE, main="Posterior Predictive Check", xlab=response_var, col=rgb(0.2,0.8,0.5,1))
-  for (i in 1:length(sims)) {
-    hist(sims[[i]], freq=FALSE, col=rgb(0.8,0.2,0.5,0.01), add=TRUE)
-  }
-  
-  # Comparing means
-  hist(simulated_means, main="Distribution of Simulated Means", xlab=paste0("Mean ", response_var))
-  abline(v=observed_mean, col="red")
-  
-  # Comparing observed and predicted values
-  predicted_values <- predict(model)
-  plot(observed_data, predicted_values)
-  abline(0, 1, col = "red")  # line of equality for reference
-}
-
-```
-
-```{r}
-check_all_parameters_normality <- function(bayesian_model) {
-  
-  # Get all parameter names
-  parameter_names <- colnames(bayesian_model$Sol)
-  results <- list()
-  
-  # Loop through each parameter and check its normality
-  for (parameter in parameter_names) {
-    samples <- bayesian_model$Sol[, parameter]
-    
-    # Display QQ-plot for each parameter
-    qqnorm(samples, main = paste("QQ-plot for", parameter))
-    qqline(samples, col = "red")
-    
-    # Append Shapiro-Wilk test results to the results list
-    results[[parameter]] <- shapiro.test(samples)
-  }
-  
-  # Return results for all parameters
-  return(results)
-}
-
-```
-
-
-#Checking normality function
-```{r normality test}
-check_normality <- function(model, data, response_var) {
-  
-  # Predicting values using the model
-  predicted_values <- predict(model)
-  
-  # Extracting observed data
-  observed_data <- data[[response_var]]
-  
-  # Calculating residuals
-  residuals <- observed_data - predicted_values
-  
-  # Display QQ-plot
-  qqnorm(residuals)
-  qqline(residuals)
-  
-  # Return result of Shapiro-Wilk test
-  return(shapiro.test(residuals))
-}
-
-```
-
-
 #Humerus
 ##Gestation
 ###%CA
@@ -558,9 +246,7 @@ h_GPDD_PCA
 h_GR_PCA <- PCA_mcmc(humerus, "gest_rain")
 
 h_GR_PCA
-```
-
-Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+``` 
 
 ###Area measurements 
 ####Rank
@@ -804,13 +490,11 @@ h_BR_PCA <- PCA_mcmc(humerus_1, "one_year_rain")
 h_BR_PCA
 ```
 
-Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
-
 ###Area measurements 
 ####Rank
 ```{r area}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 area_response_vars <- c("TA", "MA", "CA")
 BPR_predictor_var <- "BPRank"
 MRB_predictor_var <- "MRB"
@@ -829,7 +513,7 @@ h_MRB_area_result_summaries
 ####Rain
 ```{r area}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 area_response_vars <- c("TA", "MA", "CA")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -867,7 +551,7 @@ h_MRB_2ndmoment_result_summaries
 ####Rain
 ```{r I & J}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moment2nd_response_vars <- c("Ix", "Iy", "J")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -887,7 +571,7 @@ h_BR_2ndmoment_result_summaries
 ####Rank
 ```{r Z}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moduli_response_vars <- c("Zx", "Zy", "Zp")
 BPR_predictor_var <- "BPRank"
 MRB_predictor_var <- "MRB"
@@ -906,7 +590,7 @@ h_MRB_moduli_result_summaries
 ####Rain
 ```{r Z}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moduli_response_vars <- c("Zx", "Zy", "Zp")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -958,7 +642,7 @@ dic_table_rank_1$Model2 <- c(unlist(h_MRB_PCA$DIC),
 
 colnames(dic_table_rank_1) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
 
-# Add a new column indicatinB which predictor variable is lower
+# Add a new column indicating which predictor variable is lower
 dic_table_rank_1$Lower_Predictor <- ifelse(
   dic_table_rank_1$`Proportional Rank` < dic_table_rank_1$`Ordinal Rank`,
   "Proportion Rank", "Ordinal Rank"
@@ -1002,7 +686,7 @@ dic_table_rain_1$Model2 <- c(unlist(h_BPDD_PCA$DIC),
 
 colnames(dic_table_rain_1) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
 
-# Add a new column indicatinB which predictor variable is lower
+# Add a new column indicating which predictor variable is lower
 dic_table_rain_1$Lower_Predictor <- ifelse(
   dic_table_rain_1$`Cumulative Rainfall` < dic_table_rain_1$`Proportion of Drought Days`,
   "Cumulative Rainfall", "Proportion of Drought Days"
@@ -1036,8 +720,6 @@ r_GR_PCA <- PCA_mcmc(radius, "gest_rain")
 
 r_GR_PCA
 ```
-
-Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
 
 ###Area measurements 
 ####Rank
@@ -1281,13 +963,11 @@ r_BR_PCA <- PCA_mcmc(radius_1, "one_year_rain")
 r_BR_PCA
 ```
 
-Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
-
 ###Area measurements 
 ####Rank
 ```{r area}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 area_response_vars <- c("TA", "MA", "CA")
 BPR_predictor_var <- "BPRank"
 MRB_predictor_var <- "MRB"
@@ -1306,7 +986,7 @@ r_MRB_area_result_summaries
 ####Rain
 ```{r area}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 area_response_vars <- c("TA", "MA", "CA")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -1344,7 +1024,7 @@ r_MRB_2ndmoment_result_summaries
 ####Rain
 ```{r I & J}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moment2nd_response_vars <- c("Ix", "Iy", "J")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -1364,7 +1044,7 @@ r_BR_2ndmoment_result_summaries
 ####Rank
 ```{r Z}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moduli_response_vars <- c("Zx", "Zy", "Zp")
 BPR_predictor_var <- "BPRank"
 MRB_predictor_var <- "MRB"
@@ -1383,7 +1063,7 @@ r_MRB_moduli_result_summaries
 ####Rain
 ```{r Z}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moduli_response_vars <- c("Zx", "Zy", "Zp")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -1435,7 +1115,7 @@ dic_table_rank_1$Model2 <- c(unlist(r_MRB_PCA$DIC),
 
 colnames(dic_table_rank_1) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
 
-# Add a new column indicatinB which predictor variable is lower
+# Add a new column indicating which predictor variable is lower
 dic_table_rank_1$Lower_Predictor <- ifelse(
   dic_table_rank_1$`Proportional Rank` < dic_table_rank_1$`Ordinal Rank`,
   "Proportion Rank", "Ordinal Rank"
@@ -1479,7 +1159,7 @@ dic_table_rain_1$Model2 <- c(unlist(r_BPDD_PCA$DIC),
 
 colnames(dic_table_rain_1) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
 
-# Add a new column indicatinB which predictor variable is lower
+# Add a new column indicating which predictor variable is lower
 dic_table_rain_1$Lower_Predictor <- ifelse(
   dic_table_rain_1$`Cumulative Rainfall` < dic_table_rain_1$`Proportion of Drought Days`,
   "Cumulative Rainfall", "Proportion of Drought Days"
@@ -1514,9 +1194,6 @@ f_GR_PCA <- PCA_mcmc(femur, "gest_rain")
 
 f_GR_PCA
 ```
-
-Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
-
 ###Area measurements 
 ####Rank
 ```{r area}
@@ -1759,14 +1436,11 @@ f_BR_PCA <- PCA_mcmc(femur_1, "one_year_rain")
 
 f_BR_PCA
 ```
-
-Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
-
 ###Area measurements 
 ####Rank
 ```{r area}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 area_response_vars <- c("TA", "MA", "CA")
 BPR_predictor_var <- "BPRank"
 MRB_predictor_var <- "MRB"
@@ -1785,7 +1459,7 @@ f_MRB_area_result_summaries
 ####Rain
 ```{r area}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 area_response_vars <- c("TA", "MA", "CA")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -1823,7 +1497,7 @@ f_MRB_2ndmoment_result_summaries
 ####Rain
 ```{r I & J}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moment2nd_response_vars <- c("Ix", "Iy", "J")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -1843,7 +1517,7 @@ f_BR_2ndmoment_result_summaries
 ####Rank
 ```{r Z}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moduli_response_vars <- c("Zx", "Zy", "Zp")
 BPR_predictor_var <- "BPRank"
 MRB_predictor_var <- "MRB"
@@ -1862,7 +1536,7 @@ f_MRB_moduli_result_summaries
 ####Rain
 ```{r Z}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moduli_response_vars <- c("Zx", "Zy", "Zp")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -1914,7 +1588,7 @@ dic_table_rank_1$Model2 <- c(unlist(f_MRB_PCA$DIC),
 
 colnames(dic_table_rank_1) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
 
-# Add a new column indicatinB which predictor variable is lower
+# Add a new column indicating which predictor variable is lower
 dic_table_rank_1$Lower_Predictor <- ifelse(
   dic_table_rank_1$`Proportional Rank` < dic_table_rank_1$`Ordinal Rank`,
   "Proportion Rank", "Ordinal Rank"
@@ -1958,7 +1632,7 @@ dic_table_rain_1$Model2 <- c(unlist(f_BPDD_PCA$DIC),
 
 colnames(dic_table_rain_1) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
 
-# Add a new column indicatinB which predictor variable is lower
+# Add a new column indicating which predictor variable is lower
 dic_table_rain_1$Lower_Predictor <- ifelse(
   dic_table_rain_1$`Cumulative Rainfall` < dic_table_rain_1$`Proportion of Drought Days`,
   "Cumulative Rainfall", "Proportion of Drought Days"
@@ -1991,8 +1665,6 @@ t_GR_PCA <- PCA_mcmc(tibia, "gest_rain")
 
 t_GR_PCA
 ```
-
-Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
 
 ####Area measurements 
 #####Rank
@@ -2235,13 +1907,11 @@ t_BR_PCA <- PCA_mcmc(tibia_1, "one_year_rain")
 t_BR_PCA
 ```
 
-Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
-
 ###Area measurements 
 ####Rank
 ```{r area}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 area_response_vars <- c("TA", "MA", "CA")
 BPR_predictor_var <- "BPRank"
 MRB_predictor_var <- "MRB"
@@ -2260,7 +1930,7 @@ t_MRB_area_result_summaries
 ####Rain
 ```{r area}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 area_response_vars <- c("TA", "MA", "CA")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -2298,7 +1968,7 @@ t_MRB_2ndmoment_result_summaries
 ####Rain
 ```{r I & J}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moment2nd_response_vars <- c("Ix", "Iy", "J")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
@@ -2318,7 +1988,7 @@ t_BR_2ndmoment_result_summaries
 ####Rank
 ```{r Z}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moduli_response_vars <- c("Zx", "Zy", "Zp")
 BPR_predictor_var <- "BPRank"
 MRB_predictor_var <- "MRB"
@@ -2337,7 +2007,7 @@ t_MRB_moduli_result_summaries
 ####Rain
 ```{r Z}
 
-# Define your response variables and correspondinB predictor variable
+# Define your response variables and corresponding predictor variable
 moduli_response_vars <- c("Zx", "Zy", "Zp")
 BPDD_predictor_var <- "prop_droughtdays_1year"
 BR_predictor_var <- "one_year_rain"
