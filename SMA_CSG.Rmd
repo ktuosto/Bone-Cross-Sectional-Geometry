@@ -1,0 +1,688 @@
+---
+title: "ABRP CSG SMA"
+author: "Kristen Tuosto"
+date: "2023-03-22"
+output: html_document
+---
+
+```{r reading in packages and df}  
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+
+Longbones <- read.csv("C:/Users/ktuos/Desktop/ABRP Excel Files/ABRP_Master_List_3_24_2023.csv")
+
+```
+
+```{r filter function codes}
+
+#Filter function without consideration for rainfall or rank variables 
+
+filter_sample <- function(df, x) {
+ x <- filter(df, Bone.Code == x)
+ x[x==""] <- NA
+# x[x=="U"] <- NA
+ x <- x %>% drop_na(MA, Age, Sex, FDML.BM.kg)
+ x$Sex <- as.factor(x$Sex)
+ x$Age <- as.numeric(x$Age)
+  x <- data.frame(x$ABRP_ID, x$Sex, x$Age, x$Age_Class, x$MXL, x$FDML.BM.kg, x$TA, x$MA, x$CA, x$Ix, x$Iy, x$J, x$P.CA, x$Zx, x$Zy, x$Zp, x$xr_mCT)
+ x <- x %>% rename("ABRP_ID" = "x.ABRP_ID",
+                   "Sex" = "x.Sex",
+                   "Age" = "x.Age",
+                   "Age_Class" = "x.Age_Class",
+                   "MXL" = "x.MXL",
+                   "BM" = "x.FDML.BM.kg",
+                   "TA" = "x.TA",
+                   "MA" = "x.MA",
+                   "CA" = "x.CA",
+                   "P.CA" = "x.P.CA",
+                   "Ix" = "x.Ix",
+                   "Iy" = "x.Iy",
+                   "J" = "x.J",
+                   "Zx" = "x.Zx",
+                   "Zy" = "x.Zy",
+                   "Zp" = "x.Zp",
+                   "xr_mCT" = "x.xr_mCT")
+ return(data.frame(x))
+}
+
+#Filter function with consideration for rainfall and rank variables for gestation (code will be used for prediction testing)
+
+filter_sample_g <- function(df, x) {
+ x <- filter(df, Bone.Code == x)
+ x[x==""] <- NA
+ x[x=="U"] <- NA
+ x <- x %>% drop_na(MA, MRC, Age, gest_rain, Sex, FDML.BM.kg)
+ x$Sex <- as.factor(x$Sex)
+ x$Age <- as.numeric(x$Age)
+ x$gest_rain <- as.numeric(x$gest_rain)
+ x$MRC <- as.numeric(x$MRC)
+ x$n_drought_months_g <- as.numeric(x$n_drought_months_g)
+ x$GPRank <- as.numeric(x$GPRank)
+  x <- data.frame(x$ABRP_ID, x$Sex, x$Age, x$Age_Class, x$DIL, x$MRC, x$GPRank, x$gest_rain, x$n_drought_months_g, x$prop_droughtdays, x$MXL, x$FDML.BM.kg, x$TA, x$MA, x$CA, x$Ix, x$Iy, x$J, x$P.CA, x$Zx, x$Zy, x$Zp, x$xr_mCT)
+ x <- x %>% rename("ABRP_ID" = "x.ABRP_ID",
+                   "Sex" = "x.Sex",
+                   "Age" = "x.Age",
+                   "Age_Class" = "x.Age_Class",
+                   "MRC" = "x.MRC",
+                   "GPRank" = "x.GPRank",
+                   "gest_rain" = "x.gest_rain",
+                   "n_drought_months_g" = "x.n_drought_months_g",
+                   "prop_droughtdays" = "x.prop_droughtdays",
+                   "MXL" = "x.MXL",
+                   "BM" = "x.FDML.BM.kg",
+                   "TA" = "x.TA",
+                   "MA" = "x.MA",
+                   "CA" = "x.CA",
+                   "P.CA" = "x.P.CA",
+                   "Ix" = "x.Ix",
+                   "Iy" = "x.Iy",
+                   "J" = "x.J",
+                   "Zx" = "x.Zx",
+                   "Zy" = "x.Zy",
+                   "Zp" = "x.Zp",
+                   "xr_mCT" = "x.xr_mCT")
+ return(data.frame(x))
+}
+
+#Filter function with consideration for rainfall and rank variables for 1st year (code will be used for prediction testing)
+
+filter_sample_y1 <- function(df, x) {
+ x <- filter(df, Bone.Code == x)
+ x[x==""] <- NA
+ x <- x %>% drop_na(MA, MRB, Age, one_year_rain, FDML.BM.kg)
+ x <- subset(x, Age > .6)
+ #x <- subset(x, one_year_rain < 450)
+ x$Sex <- as.factor(x$Sex)
+ x$Age <- as.numeric(x$Age)
+ x$one_year_rain <- as.numeric(x$one_year_rain)
+  x <- data.frame(x$ABRP_ID, x$Sex, x$Age, x$MRB, x$BPRank, x$one_year_rain, x$n_drought_months_year1, x$prop_droughtdays_1year, x$MXL, x$FDML.BM.kg, x$TA, x$MA, x$CA, x$Ix, x$Iy, x$J, x$P.CA, x$Zx, x$Zy, x$Zp, x$xr_mCT)
+ x <- x %>% rename("ABRP_ID" = "x.ABRP_ID",
+                   "Sex" = "x.Sex",
+                   "Age" = "x.Age",
+                   "MRB" = "x.MRB",
+                   "BPRank" = "x.BPRank",
+                   "one_year_rain" = "x.one_year_rain",
+                   "n_drought_months_year1" = "x.n_drought_months_year1",
+                   "prop_droughtdays_1year" = "x.prop_droughtdays_1year",
+                   "MXL" = "x.MXL",
+                   "BM" = "x.FDML.BM.kg",
+                   "TA" = "x.TA",
+                   "MA" = "x.MA",
+                   "CA" = "x.CA",
+                   "P.CA" = "x.P.CA",
+                   "Ix" = "x.Ix",
+                   "Iy" = "x.Iy",
+                   "J" = "x.J",
+                   "Zx" = "x.Zx",
+                   "Zy" = "x.Zy",
+                   "Zp" = "x.Zp",
+                   "xr_mCT" = "x.xr_mCT")
+ return(data.frame(x))
+}
+
+```
+
+
+
+```{r filter sample - full}
+
+humerus <- filter_sample(Longbones, 'Humerus')
+
+radius <- filter_sample(Longbones, 'Radius')
+
+femur <- filter_sample(Longbones, 'Femur')
+
+tibia <- filter_sample(Longbones, 'Tibia')
+
+```
+
+#SMA function code
+```{r SMA functions by area, moment of area, modulus, %CA}
+library(lmodel2)
+library(plotly)
+
+#Area
+SMA_fun <- function(df, x) { #areas
+  p <- lmodel2(log(x)~log(BM), data=df, "interval", "interval", 99) #y ~ x 
+  print(p)
+  return(p)
+}
+
+#Moment of area
+SMA_fun1 <- function(df, x) { #section moduli
+  p <- lmodel2(log(x)~log(BM*MXL), data=df, "interval", "interval", 99) #y ~ x 
+  print(p)
+  return(p)
+}
+
+#Modulus 
+SMA_fun2 <- function(df, x) { #second moments of area
+  p <- lmodel2(log(x)~log(BM*MXL^2), data=df, "interval", "interval", 99) #y ~ x 
+  print(p)
+  return(p)
+}
+
+#%CA
+P.CA_SMA <-  function(df) {
+  p <- lmodel2(P.CA ~ Age, data=df, "interval", "interval", 99) #y ~ x 
+  print(p)
+  return(p)
+}
+
+```
+
+```{r}
+qplot(x=Age, y=log(BM), color = Sex, data = femur) + geom_smooth() + geom_point() + theme_classic() + labs(x="Age (years)", y="log(Body Mass)") + scale_colour_discrete(labels = c("Female", "Male", "Unknown")) + labs(color = "Sex") 
+
+```
+
+
+#SMA plotting function code
+```{r SMA plot functions}
+
+SMA_plots <- function(df, y, a, b) {
+  Log_plot <- ggplot(aes(y=log(y), x=log(BM)), data=df) + geom_point(aes(color = Sex), size =3) + theme_classic()
+  plot <- Log_plot + geom_abline(aes(intercept = a, slope = b), size=1.2, show.legend = TRUE) 
+  return(plot)
+}
+
+SMA_plots1 <- function(df, y, a, b) {
+  Log_plot <- ggplot(aes(y=log(y), x=log(BM*MXL)), data=df) + geom_point(aes(color = Sex), size =3)
+  plot <- Log_plot + geom_abline(aes(intercept = a, slope = b, color="SMA"), size=1.2, show.legend = TRUE) 
+  return(plot)
+}
+
+SMA_plots2 <- function(df, y, a, b) {
+  Log_plot <- ggplot(aes(y=log(y), x=log(BM*MXL^2)), data=df) + geom_point(aes(color = Sex), size =3)
+  plot <- Log_plot + geom_abline(aes(intercept = a, slope = b, color="SMA"), size=1.2, show.legend = TRUE) 
+  return(plot)
+}
+
+
+P.CA_plot <- function(df, a, b) {
+  plot1 <- ggplot(aes(y=P.CA, x=Age), data=df) + geom_point(aes(color = Sex), size =3) 
+  plot <- plot1 + geom_abline(aes(intercept = a, slope = b, color="SMA"), size=1.2, show.legend = TRUE) 
+  return(plot)
+}
+
+```
+
+#Humerus 
+```{r}
+TA_humerus <- SMA_fun(humerus, humerus$TA)
+
+plot(TA_humerus, method = "SMA") # SMA plot
+
+humerus_TA <- SMA_plots(humerus, humerus$TA, 2.892465,	0.7348611) #Code for an interactive plot/regular plot
+
+humerus_TA + labs(y="log(Humerus TA)")
+
+ggplotly(humerus_TA) # Interactive plot 
+
+```
+
+```{r}
+MA_humerus <- SMA_fun(humerus, humerus$MA)
+
+plot(MA_humerus, method = "SMA") # SMA plot
+
+humerus_MA<- SMA_plots(humerus, humerus$MA, 1.708874,	0.8319917) #Code for an interactive plot
+
+humerus_MA + labs(y="log(Humerus MA)")
+
+ggplotly(humerus_MA) # Interactive plot 
+
+```
+
+```{r}
+CA_humerus <- SMA_fun(humerus, humerus$CA)
+
+plot(CA_humerus, method = "SMA") # SMA plot
+
+humerus_CA <- SMA_plots(humerus, humerus$CA, 2.451837,	0.7106097) #Code for an interactive plot 
+
+humerus_CA + labs(y="log(Humerus CA)")
+
+ggplotly(humerus_CA) # Interactive plot 
+
+```
+
+
+```{r}
+
+Ix_humerus <- SMA_fun2(humerus, humerus$Ix)
+
+plot(Ix_humerus, method = "SMA") # SMA plot
+
+humerus_Ix <- SMA_plots2(humerus, humerus$Ix, -4.006560,	0.8182380	) #Code for an interactive plot
+
+ggplotly(humerus_Ix) # Interactive plot 
+
+```
+
+
+```{r}
+Iy_humerus <- SMA_fun2(humerus, humerus$Iy)
+
+plot(Iy_humerus, method = "SMA") # SMA plot
+
+humerus_Iy <- SMA_plots2(humerus, humerus$Iy, -3.557639,	0.8059244	) #Code for an interactive plot 
+
+ggplotly(humerus_Iy) # Interactive plot 
+
+```
+
+```{r}
+J_humerus <- SMA_fun2(humerus, humerus$J)
+
+plot(J_humerus, method = "SMA") # SMA plot
+
+humerus_J <- SMA_plots2(humerus, humerus$J, -3.058409,	0.8109203) #Code for an interactive plot
+
+ggplotly(humerus_J) # Interactive plot 
+
+```
+
+```{r}
+Zx_humerus <- SMA_fun1(humerus, humerus$Zx)
+
+plot(Zx_humerus, method = "SMA") # SMA plot
+
+humerus_Zx <- SMA_plots1(humerus, humerus$Zx, -1.180539,	0.7812360) #Code for an interactive plot
+
+ggplotly(humerus_Zx) # Interactive plot 
+```
+
+```{r}
+Zy_humerus <- SMA_fun1(humerus, humerus$Zy)
+
+plot(Zy_humerus, method = "SMA") # SMA plot
+
+humerus_Zy <- SMA_plots1(humerus, humerus$Zy, -0.9520352,	0.7718883	) #Code for an interactive plot
+
+ggplotly(humerus_Zy) # Interactive plot 
+```
+
+```{r}
+Zp_humerus <- SMA_fun1(humerus, humerus$Zp)
+
+plot(Zp_humerus, method = "SMA") # SMA plot
+
+humerus_Zp <- SMA_plots1(humerus, humerus$Zp, -0.3278513,	0.7654265) #Code for an interactive plot
+
+ggplotly(humerus_Zp) # Interactive plot 
+```
+
+
+```{r}
+P.CA_humerus <- P.CA_SMA(humerus) 
+
+plot(P.CA_humerus, method = "SMA") # SMA plot
+
+humerus_P.CA <- P.CA_plot(humerus, 71.03178,	-0.9842820) #Code for an interactive plot
+
+ggplotly(humerus_P.CA) # Interactive plot 
+
+```
+
+
+#General notes for the humerus: 
+
+
+#femur 
+```{r}
+TA_femur <- SMA_fun(femur, femur$TA)
+
+plot(TA_femur, method = "SMA") # SMA plot
+
+femur_TA <- SMA_plots(femur, femur$TA, 2.953807,	0.7715318) #Code for an interactive plot 
+
+ggplotly(femur_TA) # Interactive plot 
+
+```
+
+```{r}
+MA_femur <- SMA_fun(femur, femur$MA)
+
+plot(MA_femur, method = "SMA") # SMA plot
+
+femur_MA <- SMA_plots(femur, femur$MA, 1.744768,	0.8542631) #Code for an interactive plot
+
+ggplotly(femur_MA) # Interactive plot 
+
+```
+
+```{r}
+CA_femur <- SMA_fun(femur, femur$CA)
+
+plot(CA_femur, method = "SMA") # SMA plot
+
+femur_CA <- SMA_plots(femur, femur$CA, 2.505304,	0.7658813	) #Code for an interactive plot 
+
+ggplotly(femur_CA) # Interactive plot 
+
+```
+
+```{r}
+
+Ix_femur <- SMA_fun2(femur, femur$Ix)
+
+plot(Ix_femur, method = "SMA") # SMA plot
+
+femur_Ix <- SMA_plots2(femur, femur$Ix, -3.832083,	0.8201655) #Code for an interactive plot
+
+ggplotly(femur_Ix) # Interactive plot 
+
+```
+
+```{r}
+Iy_femur <- SMA_fun2(femur, femur$Iy)
+
+plot(Iy_femur, method = "SMA") # SMA plot
+
+femur_Iy <- SMA_plots2(femur, femur$Iy, -4.489853,	0.8731532) #Code for an interactive plot 
+
+ggplotly(femur_Iy) # Interactive plot 
+
+```
+
+```{r}
+J_femur <- SMA_fun2(femur, femur$J)
+
+plot(J_femur, method = "SMA") # SMA plot
+
+femur_J <- SMA_plots2(femur, femur$J, -3.427358,	0.8432931) #Code for an interactive plot
+
+ggplotly(femur_J) # Interactive plot 
+
+```
+
+```{r}
+Zx_femur <- SMA_fun1(femur, femur$Zx)
+
+plot(Zx_femur, method = "SMA") # SMA plot
+
+femur_Zx <- SMA_plots1(femur, femur$Zx, -1.120065,	0.7987787) #Code for an interactive plot
+
+ggplotly(femur_Zx) # Interactive plot 
+```
+
+```{r}
+Zy_femur <- SMA_fun1(femur, femur$Zy)
+
+plot(Zy_femur, method = "SMA") # SMA plot
+
+femur_Zy <- SMA_plots1(femur, femur$Zy, -1.353157,	0.8327825) #Code for an interactive plot
+
+ggplotly(femur_Zy) # Interactive plot 
+```
+
+```{r}
+Zp_femur <- SMA_fun1(femur, femur$Zp)
+
+plot(Zp_femur, method = "SMA") # SMA plot
+
+femur_Zp <- SMA_plots1(femur, femur$Zp, -0.5153510,	0.8082114	) #Code for an interactive plot
+
+ggplotly(femur_Zp) # Interactive plot 
+```
+
+```{r}
+P.CA_femur <- P.CA_SMA(femur)  
+
+plot(P.CA_femur, method = "SMA") # SMA plot
+
+femur_P.CA <- P.CA_plot(femur, 54.35371,	0.93848255) #Code for an interactive plot
+
+ggplotly(femur_P.CA) # Interactive plot 
+
+```
+
+#General notes for the femur: 
+
+#tibia 
+#Added a correction factor (CF) for the x-ray tibia (CF was determine with a n of 9, ages 3.31-14.05, essentially the yongest to the second oldest in the microCT tibia sample (oldest is 14.59))
+
+#CF was determine by: microCT measurement(s)/x-ray measurement(s) for the bones we had both microCT and x-ray images for, and than we took the mean of those results and applied them to the individuals where we have x-ray images only 
+```{r}
+TA_tibia <- SMA_fun(tibia, tibia$TA)
+
+plot(TA_tibia, method = "SMA") # SMA plot
+
+tibia_TA <- SMA_plots(tibia, tibia$TA, 2.764478,	0.8195629	) #Code for an interactive plot 
+
+ggplotly(tibia_TA) # Interactive plot 
+
+```
+
+```{r}
+MA_tibia <- SMA_fun(tibia, tibia$MA)
+
+plot(MA_tibia, method = "SMA") # SMA plot
+
+tibia_MA <- SMA_plots(tibia, tibia$MA, 1.623709,	0.8823448) #Code for an interactive plot 
+
+ggplotly(tibia_MA) # Interactive plot 
+
+```
+
+```{r}
+CA_tibia <- SMA_fun(tibia, tibia$CA)
+
+plot(CA_tibia, method = "SMA") # SMA plot
+
+tibia_CA <- SMA_plots(tibia, tibia$CA, 2.323170,	0.8083081) #Code for an interactive plot 
+
+ggplotly(tibia_CA) # Interactive plot 
+
+```
+
+```{r}
+
+Ix_tibia <- SMA_fun2(tibia, tibia$Ix)
+
+plot(Ix_tibia, method = "SMA") # SMA plot
+
+tibia_Ix <- SMA_plots2(tibia, tibia$Ix, -5.559490,	0.9375193) #Code for an interactive plot
+
+ggplotly(tibia_Ix) # Interactive plot 
+
+#ABRP.042 (x-ray) has two crack with some very minor separation running up the length of the tibia (can be clearly seen internally)
+
+```
+
+
+```{r}
+Iy_tibia <- SMA_fun2(tibia, tibia$Iy)
+
+plot(Iy_tibia, method = "SMA") # SMA plot
+
+tibia_Iy <- SMA_plots2(tibia, tibia$Iy, -3.477810,	0.8218471) #Code for an interactive plot 
+
+ggplotly(tibia_Iy) # Interactive plot 
+
+# Could ABRP.040 be popping out b/c of her age (19.1), or any of our environmental factors (maybe not rank as she is pretty high rank but experienced low rainfall conditions during gestation and moderate rainfall during the first year of life)?
+
+# ABRP.035 is similar to ABRP.018, in that one section of the cortical bone is very thick, but I don't see any injury like with ABRP.018 tibia. However, ABRP.035 is very large bodied (estimated body mass 27.8 kg...he is the heaviest/largest in our sample). He also had some other issues going on with him (massive amount of pathology on the right side of his cranial facial bones, maybe an infection or tumors?)
+
+# ABRP.042 (x-ray) has two crack with some very minor separation running up the length of the tibia (can be clearly seen internally)
+
+# I mention the environmental conditions b/c based on our results with the long bone measurements, and previous studies in humans, the tibia seems to be more sensitive to external environment 
+```
+
+```{r}
+J_tibia <- SMA_fun2(tibia, tibia$J)
+
+plot(J_tibia, method = "SMA") # SMA plot
+
+tibia_J <- SMA_plots2(tibia, tibia$J, -4.053336,	0.9001997) #Code for an interactive plot
+
+ggplotly(tibia_J) # Interactive plot 
+
+```
+
+```{r}
+Zx_tibia <- SMA_fun1(tibia, tibia$Zx)
+
+plot(Zx_tibia, method = "SMA") # SMA plot
+
+tibia_Zx <- SMA_plots1(tibia, tibia$Zx, -2.076552,	0.8964498) #Code for an interactive plot
+
+ggplotly(tibia_Zx) # Interactive plot 
+```
+
+```{r}
+Zy_tibia <- SMA_fun1(tibia, tibia$Zy)
+
+plot(Zy_tibia, method = "SMA") # SMA plot
+
+tibia_Zy <- SMA_plots1(tibia, tibia$Zy, -1.252525,	0.8346947) #Code for an interactive plot
+
+ggplotly(tibia_Zy) # Interactive plot 
+```
+
+```{r}
+Zp_tibia <- SMA_fun1(tibia, tibia$Zp)
+
+plot(Zp_tibia, method = "SMA") # SMA plot
+
+tibia_Zp <- SMA_plots1(tibia, tibia$Zp, -1.153346,	0.8737902) #Code for an interactive plot
+
+ggplotly(tibia_Zp) # Interactive plot 
+```
+
+```{r}
+P.CA_tibia <- P.CA_SMA(tibia) 
+
+plot(P.CA_tibia, method = "SMA") # SMA plot
+
+tibia_P.CA <- P.CA_plot(tibia, 71.00426,	-0.8212398) #Code for an interactive plot
+
+ggplotly(tibia_P.CA) # Interactive plot 
+
+```
+
+#General notes about the tibia: I think the CF makes the x-ray images fit better with the microCT.
+
+
+#radius - just to see, however, the radius shape is very triangluar 
+```{r}
+TA_radius <- SMA_fun(radius, radius$TA)
+
+plot(TA_radius, method = "SMA") # SMA plot
+
+radius_TA <- SMA_plots(radius, radius$TA, 2.192758,	0.7855019) #Code for an interactive plot 
+
+ggplotly(radius_TA) # Interactive plot 
+
+```
+
+```{r}
+MA_radius <- SMA_fun(radius, radius$MA)
+
+plot(MA_radius, method = "SMA") # SMA plot
+
+radius_MA <- SMA_plots(radius, radius$MA, 1.036426,	0.8059092) #Code for an interactive plot
+
+ggplotly(radius_MA) # Interactive plot 
+
+```
+
+```{r}
+CA_radius <- SMA_fun(radius, radius$CA)
+
+plot(CA_radius, method = "SMA") # SMA plot
+
+radius_CA <- SMA_plots(radius, radius$CA, 1.774358,	0.7876877	) #Code for an interactive plot 
+
+ggplotly(radius_CA) # Interactive plot 
+
+```
+
+```{r}
+
+Ix_radius <- SMA_fun2(radius, radius$Ix)
+
+plot(Ix_radius, method = "SMA") # SMA plot
+
+radius_Ix <- SMA_plots2(radius, radius$Ix, -6.021332,	0.8744431) #Code for an interactive plot
+
+ggplotly(radius_Ix) # Interactive plot 
+
+```
+
+
+```{r}
+Iy_radius <- SMA_fun2(radius, radius$Iy)
+
+plot(Iy_radius, method = "SMA") # SMA plot
+
+radius_Iy <- SMA_plots2(radius, radius$Iy, -5.686578,	0.8885873) #Code for an interactive plot 
+
+ggplotly(radius_Iy) # Interactive plot 
+
+```
+
+```{r}
+J_radius <- SMA_fun2(radius, radius$J)
+
+plot(J_radius, method = "SMA") # SMA plot
+
+radius_J <- SMA_plots2(radius, radius$J, -5.018385,	0.8711712	) #Code for an interactive plot
+
+ggplotly(radius_J) # Interactive plot 
+
+```
+
+```{r}
+Zx_radius <- SMA_fun1(radius, radius$Zx)
+
+plot(Zx_radius, method = "SMA") # SMA plot
+
+radius_Zx <- SMA_plots1(radius, radius$Zx, -2.728911,	0.8705826	) #Code for an interactive plot
+
+ggplotly(radius_Zx) # Interactive plot 
+
+#ABRP.040 (x-ray image), measurement and numbers correct, however, radius was very pathological on the distal end (photographed) and from the x-ray image you can see the cortical bone is super think on one side (possible due to the severe pathology). 
+```
+
+```{r}
+Zy_radius <- SMA_fun1(radius, radius$Zy)
+
+plot(Zy_radius, method = "SMA") # SMA plot
+
+radius_Zy <- SMA_plots1(radius, radius$Zy, -2.543691,	0.8855411) #Code for an interactive plot
+
+ggplotly(radius_Zy) # Interactive plot 
+
+#ABRP.040 (x-ray image), measurement and numbers correct, however, radius was very pathological on the distal end (photographed) and from the x-ray image you can see the cortical bone is super think on one side (possible due to the severe pathology). 
+```
+
+```{r}
+Zp_radius <- SMA_fun1(radius, radius$Zp)
+
+plot(Zp_radius, method = "SMA") # SMA plot
+
+radius_Zp <- SMA_plots1(radius, radius$Zp, -1.885296,	0.8637240) #Code for an interactive plot
+
+ggplotly(radius_Zp) # Interactive plot 
+
+#ABRP.040 (x-ray image), measurement and numbers correct, however, radius was very pathological on the distal end (photographed) and from the x-ray image you can see the cortical bone is super think on one side (possible due to the severe pathology).  
+```
+
+```{r}
+P.CA_radius <- P.CA_SMA(radius)
+
+plot(P.CA_radius, method = "SMA") # SMA plot
+
+radius_P.CA <- P.CA_plot(radius, 75.17294,	-0.90190634) #Code for an interactive plot
+
+ggplotly(radius_P.CA) # Interactive plot 
+
+```
+
+
+#General notes for the radius: Nothing looks too bad, that being said I don't know if I can judge corretly when something doesn't look right. ***BUT from my understanding the EEM assumes circularity, the radius midshaft are not circular in anyway shape or form. 
+
+
