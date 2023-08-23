@@ -1,0 +1,2447 @@
+---
+title: "MCMC_CSG"
+author: "Kristen Tuosto"
+date: "2023-04-01"
+output: html_document
+---
+
+```{r read in df & libraries}
+#load libraries
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+#library(AICcmodavg)
+library(MCMCglmm)
+
+#read in df 
+
+df <- read.csv("C:/Users/ktuos/Desktop/ABRP Excel Files/R Codes/Genetic_Master_June_7_2023.csv")
+
+pedigree <- read.csv("C:/Users/ktuos/Desktop/ABRP Excel Files/R Codes/pedigree_df_v4.csv")
+
+df$Sex <- as.factor(df$Sex)
+
+df <- df %>% drop_na(Age)
+
+
+```
+
+```{r filter df by bone}
+
+
+df <- df %>% drop_na(FDML.BM.kg)
+
+#Humerus
+humerus <- filter(df, Bone.Code == "Humerus")
+
+# Remove blanks
+humerus <- humerus[humerus$animal != "", ]
+
+humerus <- humerus %>% drop_na(DIL)
+
+#write.csv(humerus, "C:/Users/ktuos/Desktop/ABRP Excel Files/humerus_only.csv", row.names=FALSE)
+
+#Radius
+radius <- filter(df, Bone.Code == "Radius")
+
+# Remove blanks
+radius <- radius[radius$animal != "", ]
+
+radius <- radius %>% drop_na(DIL)
+
+#Femur
+femur <- filter(df, Bone.Code == "Femur")
+
+# Remove blanks
+femur <- femur[femur$animal != "", ]
+
+femur <- femur %>% drop_na(DIL)
+
+#Tibia
+tibia <- filter(df, Bone.Code == "Tibia")
+
+# Remove blanks
+tibia <- tibia[tibia$animal != "", ]
+
+tibia <- tibia %>% drop_na(DIL)
+
+```
+
+```{r ordering df}
+
+library(MasterBayes)
+
+
+# Sort the pedigree data
+ordered_pedigree <- orderPed(pedigree)
+
+# Continue with your analysis using the ordered pedigree
+
+str(ordered_pedigree)
+
+#write.csv(ordered_pedigree, "C:/Users/ktuos/Desktop/ABRP Excel Files/ordered_pedigree.csv", row.names=FALSE)
+
+```
+
+# Defining Priors
+```{r animal mode setup}
+
+#inverse relatedness matrix
+Ainv <- inverseA(ordered_pedigree)$Ainv # Relatedness matrix does not need to be in the same df as data
+
+# Defining priors and the residual variance
+prior1.1 <- list(
+  G = list(G1 = list(V = 1, nu = 0.002)),
+  R = list(V = 1, nu = 0.002)
+)
+
+# Defining priors and the residual variance
+prior1.1.2 <- list(
+  G = list(G1 = list(V = 1, nu = 0.05)),
+  R = list(V = 1, nu = 0.05)
+)
+
+```
+
+#Functions
+###%CA function
+```{r %CA function}
+#Area function where we can change the response variable and the predictor variable, therefor this function can be used to test rank and rainfall variables. 
+
+PCA_mcmc <- function(df, pred_vars) {
+  res_formula <- as.formula(paste("P.CA ~ Age + Sex +", paste(pred_vars, collapse = " + ")))
+
+  model <- MCMCglmm(res_formula,
+                    random = ~ animal, 
+                    ginv = list(animal = Ainv),
+                    prior = prior1.1.2,
+                    data = df,
+                    nitt = 500000, 
+                    thin = 50, 
+                    burnin = 55500, 
+                    verbose = FALSE)
+  
+  print(autocorr.diag(model$VCV))
+  print(autocorr.diag(model$Sol))
+  plot(model$VCV)
+  return(summary(model))
+}
+
+
+# Usage/Setup, note the predictor variable is in " " 
+# PCA_mcmc(humerus, "GPRank")
+
+```
+
+###Area function
+```{r area function}
+area_mcmc_multiple <- function(df, res_vars, pred_var_name) {
+  summaries <- list()
+  
+  for (i in seq_along(res_vars)) {
+    res_var_name <- res_vars[i]
+    pred_var <- df[[pred_var_name]]
+    
+    res_formula <- as.formula(paste("log(", res_var_name, ") ~ log(FDML.BM.kg) + Sex +", pred_var_name))
+    
+    model <- MCMCglmm(res_formula,
+                      random = ~ animal, 
+                      ginv = list(animal = Ainv),
+                      prior = prior1.1.2,
+                      data = df,
+                      nitt = 500000, 
+                      thin = 50, 
+                      burnin = 55500, 
+                      verbose = FALSE)
+    
+    summaries[[i]] <- summary(model)
+    plot(model$VCV)
+    print(autocorr.diag(model$VCV))
+  }
+  
+  return(summaries)
+}
+
+```
+
+###2nd moment of area function
+```{r 2nd Moment of area function}
+moment2nd_mcmc_multiple <- function(df, res_vars, pred_var_name) {
+  summaries <- list()
+  
+  for (i in seq_along(res_vars)) {
+    res_var_name <- res_vars[i]
+    pred_var <- df[[pred_var_name]]
+    
+    res_formula <- as.formula(paste("log(", res_var_name, ") ~ log(FDML.BM.kg*MXL^2) + Sex +", pred_var_name))
+    
+    model <- MCMCglmm(res_formula,
+                      random = ~ animal, 
+                      ginv = list(animal = Ainv),
+                      prior = prior1.1.2,
+                      data = df,
+                      nitt = 500000, 
+                      thin = 50, 
+                      burnin = 55500, 
+                      verbose = FALSE)
+    
+    summaries[[i]] <- summary(model)
+    plot(model$VCV)
+    print(autocorr.diag(model$VCV))
+  }
+  
+  return(summaries)
+}
+```
+
+###Section moduli function
+```{r section moduli function}
+
+moduli_mcmc_multiple <- function(df, res_vars, pred_var_name) {
+  summaries <- list()
+  
+  for (i in seq_along(res_vars)) {
+    res_var_name <- res_vars[i]
+    pred_var <- df[[pred_var_name]]
+    
+    res_formula <- as.formula(paste("log(", res_var_name, ") ~ log(FDML.BM.kg*MXL) + Sex +", pred_var_name))
+    
+    model <- MCMCglmm(res_formula,
+                      random = ~ animal, 
+                      ginv = list(animal = Ainv),
+                      prior = prior1.1.2,
+                      data = df,
+                      nitt = 500000, 
+                      thin = 50, 
+                      burnin = 55500, 
+                      verbose = FALSE)
+    
+    summaries[[i]] <- summary(model)
+    plot(model$VCV)
+    print(autocorr.diag(model$VCV))
+  }
+  
+  return(summaries)
+}
+```
+
+###CI plot
+```{r CI plot function}
+plot.estimates <- function(x) {
+  if (class(x) != "summary.mcmc")
+    x <- summary(x)
+  n <- dim(x$statistics)[1]
+  par(mar=c(2, 7, 4, 1))
+  plot(x$statistics[,1], n:1,
+       yaxt="n", ylab="",
+       xlim=range(x$quantiles)*1.2,
+       pch=19,
+       main="Posterior means and 95% credible intervals")
+  grid()
+  axis(2, at=n:1, rownames(x$statistics), las=2)
+  arrows(x$quantiles[,1], n:1, x$quantiles[,5], n:1, code=0)
+  abline(v=0, lty=2)
+}
+```
+
+###Autocorralation plots
+```{r autocorralation plot function} 
+plot.acfs <- function(x) {
+  n <- dim(x)[2]
+  par(mfrow=c(ceiling(n/2),2), mar=c(3,2,3,0))
+  for (i in 1:n) {
+    acf(x[,i], lag.max=100, main=colnames(x)[i])
+    grid()
+  }
+}
+
+```
+
+###MCMC malleable model function
+```{r MCMC}
+run_mcmc_analysis <- function(response_var_tansformation, rain_var, rank_var, fdml_transformation, data, df_name, prior, 
+                              nitt = 500000, thin = 50, burnin = 55500, verbose = FALSE) {
+  
+  # Run MCMCglmm model
+  model_result <- MCMCglmm(as.formula(paste0(response_var_tansformation, " ~ ", fdml_transformation, " + Sex + ", 
+                           rain_var, " + ", rank_var)),
+                           random = ~ animal, 
+                           ginv = list(animal = Ainv),
+                           prior = prior,
+                           data = data,
+                           nitt = nitt, 
+                           thin = thin, 
+                           burnin = burnin, 
+                           verbose = verbose)
+  
+  # Plot the solutions and save to PDF
+  pdf(paste0(df_name, "_", response_var_tansformation, "_", rain_var, "_", rank_var, "_plot.pdf"))
+  plot(model_result$Sol)
+  dev.off()
+
+  
+  # Plot the variance components
+  plot(model_result$VCV)
+  
+  # Print summary and save to text file
+  sink(paste0(df_name, "_", response_var_tansformation, "_", rain_var, "_", rank_var, ".txt"))
+  print(summary(model_result))
+  sink()
+  
+  # Return the model result and other diagnostics
+  list(
+    model = model_result,
+    effective_size_sol = effectiveSize(model_result[["Sol"]]),
+    effective_size_vcv = effectiveSize(model_result[["VCV"]])
+  )
+  print(summary(model_result))
+  return(model_result)
+}
+
+```
+
+###Diagnostic function
+```{r diagnostic}
+run_diagnostics <- function(model_result) {
+  
+  # Heidelberg stationarity test
+  heidel_vcv <- heidel.diag(model_result[["VCV"]])
+  heidel_sol <- heidel.diag(model_result[["Sol"]])
+  
+  raftery_res <- raftery.diag(model_result, q=0.025, r=0.005, s=0.95, converge.eps=0.001)
+  
+  # Geweke diagnostics
+  geweke_sol_diag <- geweke.diag(model_result$Sol)
+  geweke_sol_plot <- geweke.plot(model_result$Sol)
+  
+  geweke_vcv_diag <- geweke.diag(model_result$VCV)
+  geweke_vcv_plot <- geweke.plot(model_result$VCV)
+  
+  # Autocorrelation diagnostics
+  acf_sol_plot <- plot.acfs(model_result$Sol)
+  acf_vcv_plot <- plot.acfs(model_result$VCV)
+  
+  autocorr_vcv_diag <- autocorr.diag(model_result$VCV)
+  autocorr_sol_diag <- autocorr.diag(model_result$Sol)
+  
+  # CI plots
+  ci_sol_plot <- plot.estimates(model_result$Sol)
+  ci_vcv_plot <- plot.estimates(model_result$VCV)
+  
+  # Return results in a list for further analysis
+  list(
+    heidel_vcv = heidel_vcv,
+    heidel_sol = heidel_sol,
+    raftery = raftery_res,
+    geweke_sol_diag = geweke_sol_diag,
+    geweke_sol_plot = geweke_sol_plot,
+    geweke_vcv_diag = geweke_vcv_diag,
+    geweke_vcv_plot = geweke_vcv_plot,
+    acf_sol_plot = acf_sol_plot,
+    acf_vcv_plot = acf_vcv_plot,
+    autocorr_vcv_diag = autocorr_vcv_diag,
+    autocorr_sol_diag = autocorr_sol_diag,
+    ci_sol_plot = ci_sol_plot,
+    ci_vcv_plot = ci_vcv_plot
+  )
+}
+
+# Example of how to use the function
+# diagnostic_results_test <- run_diagnostics(model_test)
+# 
+# diagnostic_results_test
+```
+
+###Heritability function
+```{r heritability}
+compute_posterior_heritability <- function(model_result) {
+  
+  # Compute posterior mode of the variance components
+  vcv_mode <- posterior.mode(model_result$VCV)
+  
+  # Calculate 95% HPD interval for the variance components
+  vcv_hpd <- HPDinterval(model_result$VCV)
+  
+  # Calculate heritability based on the posterior distributions of the animal and units variance components
+  heritability_posterior <- model_result$VCV[, "animal"] / 
+                            (model_result$VCV[, "animal"] + model_result$VCV[, "units"])
+  
+  # Compute posterior mode of heritability
+  heritability_mode <- posterior.mode(heritability_posterior)
+  print(heritability_mode)
+  
+  # Calculate 95% HPD interval for heritability
+  heritability_hpd <- HPDinterval(heritability_posterior, 0.95)
+  print(heritability_hpd)
+  
+  # Plot the posterior distribution of heritability
+  plot(heritability_posterior, main = "Posterior Distribution of Heritability")
+  
+  # Return results in a list for further analysis
+  list(
+    vcv_mode = vcv_mode,
+    vcv_hpd = vcv_hpd,
+    heritability_posterior = heritability_posterior,
+    heritability_mode = heritability_mode,
+    heritability_hpd = heritability_hpd
+  )
+}
+
+# Example of how to use the function
+# heritability_results <- compute_posterior_heritability(model_test)
+
+```
+
+###Run and diagnostic MCMC function
+```{r r-hat test}
+run_and_diagnose_mcmc <- function(response_var_transformation, rain_var, rank_var, fdml_transformation, 
+                                  num_runs = 5, prior, data) {
+  library(coda)
+  
+  # Run MCMC model multiple times
+  fits <- list()
+  for (i in 1:num_runs) {
+    formula_str <- paste0(response_var_transformation," ~ ", fdml_transformation, " + ", 
+                          rain_var, " + ", rank_var, " + Sex")
+    fits[[i]] <- MCMCglmm(as.formula(formula_str),
+                          random = ~ animal, 
+                          ginv = list(animal = Ainv),
+                          prior = prior,
+                          data = data,
+                          nitt = 500000, 
+                          thin = 50, 
+                          burnin = 25500, 
+                          verbose = FALSE)
+  }
+  
+   # Pool solutions and VCVs
+  mcmc_list_Sol <- mcmc.list(lapply(fits, function(x) x$Sol))
+  mcmc_list_VCV <- mcmc.list(lapply(fits, function(x) x$VCV))
+  
+  # Gelman-Rubin diagnostic plots and diagnostics
+  gelman.plot(mcmc_list_Sol)
+  sol_diag <- gelman.diag(mcmc_list_Sol)
+  print(sol_diag)
+  
+  gelman.plot(mcmc_list_VCV)
+  vcv_diag <- gelman.diag(mcmc_list_VCV)
+  print(vcv_diag)
+  
+  # Trace plots
+  par(mfrow = c(8, 2), mar = c(2, 1, 1, 1))
+  plot(mcmc_list_Sol, ask = F, auto.layout = F)
+  
+  par(mfrow = c(8, 2), mar = c(2, 1, 1, 1))
+  plot(mcmc_list_VCV, ask = F, auto.layout = F)
+  
+  # Return the diagnostics for further analysis
+  list(
+    sol_diag = sol_diag,
+    vcv_diag = vcv_diag
+  )
+}
+
+```
+
+###Posterior predictive check function
+```{r post pred check}
+
+posterior_predictive_check <- function(model, data_name, response_var, log_transform = FALSE) {
+  
+  # Number of simulations
+  nsimulations <- 100
+  sims <- vector("list", nsimulations)
+  
+  # Simulating data from the model
+  for (i in 1:nsimulations) {
+    sims[[i]] <- simulate(model)
+  }
+  
+  # Extracting observed data and applying log transformation if needed
+  observed_data <- if(log_transform) log(get(data_name)[[response_var]]) else get(data_name)[[response_var]]
+  
+  # Calculating observed statistics
+  observed_min <- min(observed_data)
+  observed_max <- max(observed_data)
+  observed_mean <- mean(observed_data)
+  
+  # Calculating statistics from simulated data
+  simulated_mins <- sapply(sims, min)
+  simulated_maxs <- sapply(sims, max)
+  simulated_means <- sapply(sims, mean)
+  
+  # Plotting histograms
+  hist(observed_data, freq=FALSE, main="Posterior Predictive Check", xlab=response_var, col=rgb(0.2,0.8,0.5,1))
+  for (i in 1:length(sims)) {
+    hist(sims[[i]], freq=FALSE, col=rgb(0.8,0.2,0.5,0.01), add=TRUE)
+  }
+  
+  # Comparing means
+  hist(simulated_means, main="Distribution of Simulated Means", xlab=paste0("Mean ", response_var))
+  abline(v=observed_mean, col="red")
+  
+  # Comparing observed and predicted values
+  predicted_values <- predict(model)
+  plot(observed_data, predicted_values)
+  abline(0, 1, col = "red")  # line of equality for reference
+}
+
+```
+
+```{r}
+check_all_parameters_normality <- function(bayesian_model) {
+  
+  # Get all parameter names
+  parameter_names <- colnames(bayesian_model$Sol)
+  results <- list()
+  
+  # Loop through each parameter and check its normality
+  for (parameter in parameter_names) {
+    samples <- bayesian_model$Sol[, parameter]
+    
+    # Display QQ-plot for each parameter
+    qqnorm(samples, main = paste("QQ-plot for", parameter))
+    qqline(samples, col = "red")
+    
+    # Append Shapiro-Wilk test results to the results list
+    results[[parameter]] <- shapiro.test(samples)
+  }
+  
+  # Return results for all parameters
+  return(results)
+}
+
+```
+
+
+#Checking normality function
+```{r normality test}
+check_normality <- function(model, data, response_var) {
+  
+  # Predicting values using the model
+  predicted_values <- predict(model)
+  
+  # Extracting observed data
+  observed_data <- data[[response_var]]
+  
+  # Calculating residuals
+  residuals <- observed_data - predicted_values
+  
+  # Display QQ-plot
+  qqnorm(residuals)
+  qqline(residuals)
+  
+  # Return result of Shapiro-Wilk test
+  return(shapiro.test(residuals))
+}
+
+```
+
+
+#Humerus
+##Gestation
+###%CA
+####Rank & Rainfall
+```{r}
+h_GPR_PCA <- PCA_mcmc(humerus, "GPRank")
+
+h_GPR_PCA
+
+h_MRC_PCA <- PCA_mcmc(humerus, "MRC")
+
+h_MRC_PCA
+
+h_GPDD_PCA <- PCA_mcmc(humerus, "prop_droughtdays")
+
+h_GPDD_PCA
+
+h_GR_PCA <- PCA_mcmc(humerus, "gest_rain")
+
+h_GR_PCA
+```
+
+Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+
+###Area measurements 
+####Rank
+```{r area}
+
+# Define response variables and corresponding predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+h_GPR_area_result_summaries <- area_mcmc_multiple(humerus, area_response_vars, GPR_predictor_var)
+
+h_GPR_area_result_summaries
+
+# Call the function
+h_MRC_area_result_summaries <- area_mcmc_multiple(humerus, area_response_vars, MRC_predictor_var)
+
+h_MRC_area_result_summaries
+```
+
+####Rain
+```{r area}
+
+# Define your response variables and corresponding predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+h_GPDD_area_result_summaries <- area_mcmc_multiple(humerus, area_response_vars, GPDD_predictor_var)
+
+# Call the function
+h_GR_area_result_summaries <- area_mcmc_multiple(humerus, area_response_vars, GR_predictor_var)
+
+h_GR_area_result_summaries
+
+```
+
+###Moment of area measurements
+####Rank
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+h_GPR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(humerus, moment2nd_response_vars, GPR_predictor_var)
+
+h_GPR_2ndmoment_result_summaries
+
+# Call the function
+h_MRC_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(humerus, moment2nd_response_vars, MRC_predictor_var)
+
+h_MRC_2ndmoment_result_summaries
+```
+
+####Rain
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+h_GPDD_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(humerus, moment2nd_response_vars, GPDD_predictor_var)
+
+h_GPDD_2ndmoment_result_summaries
+
+# Call the function
+h_GR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(humerus, moment2nd_response_vars, GR_predictor_var)
+
+h_GR_2ndmoment_result_summaries
+```
+
+###section moduli
+####Rank
+```{r Z}
+
+# Define your response variables and corresponding predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+h_GPR_moduli_result_summaries <- moduli_mcmc_multiple(humerus, moduli_response_vars, GPR_predictor_var)
+
+h_GPR_moduli_result_summaries
+
+# Call the function
+h_MRC_moduli_result_summaries <- moduli_mcmc_multiple(humerus, moduli_response_vars, MRC_predictor_var)
+
+h_MRC_moduli_result_summaries
+```
+
+####Rain
+```{r Z}
+
+# Define your response variables and corresponding predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+h_GPDD_moduli_result_summaries <- moduli_mcmc_multiple(humerus, moduli_response_vars, GPDD_predictor_var)
+
+h_GPDD_moduli_result_summaries
+
+# Call the function
+h_GR_moduli_result_summaries <- moduli_mcmc_multiple(humerus, moduli_response_vars, GR_predictor_var)
+
+h_GR_moduli_result_summaries
+```
+
+##DIC Table Humerus
+```{r DIC table rank & rain gestation}
+
+dic_table_rank_h <- data.frame(
+  Bone = c("%Ca", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rank_h$Model1 <- c(unlist(h_GPR_PCA$DIC),
+                      unlist(h_GPR_area_result_summaries[[1]]$DIC),
+                      unlist(h_GPR_area_result_summaries[[2]]$DIC),
+                      unlist(h_GPR_area_result_summaries[[3]]$DIC),
+                      unlist(h_GPR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(h_GPR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(h_GPR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(h_GPR_moduli_result_summaries[[1]]$DIC),
+                      unlist(h_GPR_moduli_result_summaries[[2]]$DIC),
+                      unlist(h_GPR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rank_h$Model2 <- c(unlist(h_MRC_PCA$DIC),
+                      unlist(h_MRC_area_result_summaries[[1]]$DIC),
+                      unlist(h_MRC_area_result_summaries[[2]]$DIC),
+                      unlist(h_MRC_area_result_summaries[[3]]$DIC),
+                      unlist(h_MRC_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(h_MRC_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(h_MRC_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(h_MRC_moduli_result_summaries[[1]]$DIC),
+                      unlist(h_MRC_moduli_result_summaries[[2]]$DIC),
+                      unlist(h_MRC_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rank_h) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
+
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rank_h$Lower_Predictor <- ifelse(
+  dic_table_rank_h$`Proportional Rank` < dic_table_rank_h$`Ordinal Rank`,
+  "Proportion Rank", "Ordinal Rank"
+)
+
+print(dic_table_rank_h)
+
+
+#write.csv(dic_table_rank_h, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rank_gest_h_CSG.csv", row.names=FALSE)
+
+dic_table_rain_h <- data.frame(
+  Bone = c("%Ca", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rain_h$Model1 <- c(unlist(h_GR_PCA$DIC),
+                      unlist(h_GR_area_result_summaries[[1]]$DIC),
+                      unlist(h_GR_area_result_summaries[[2]]$DIC),
+                      unlist(h_GR_area_result_summaries[[3]]$DIC),
+                      unlist(h_GR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(h_GR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(h_GR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(h_GR_moduli_result_summaries[[1]]$DIC),
+                      unlist(h_GR_moduli_result_summaries[[2]]$DIC),
+                      unlist(h_GR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rain_h$Model2 <- c(unlist(h_GPDD_PCA$DIC),
+                      unlist(h_GPDD_area_result_summaries[[1]]$DIC),
+                      unlist(h_GPDD_area_result_summaries[[2]]$DIC),
+                      unlist(h_GPDD_area_result_summaries[[3]]$DIC),
+                      unlist(h_GPDD_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(h_GPDD_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(h_GPDD_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(h_GPDD_moduli_result_summaries[[1]]$DIC),
+                      unlist(h_GPDD_moduli_result_summaries[[2]]$DIC),
+                      unlist(h_GPDD_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rain_h) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rain_h$Lower_Predictor <- ifelse(
+  dic_table_rain_h$`Cumulative Rainfall` < dic_table_rain_h$`Proportion of Drought Days`,
+  "Cumulative Rainfall", "Proportion of Drought Days"
+)
+
+#write.csv(dic_table_rain_h, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rain_gest_h_CSG.csv", row.names=FALSE)
+
+print(dic_table_rain_h)
+```
+
+
+#Year 1
+
+```{r year 1 subset}
+
+humerus_1 <- subset(humerus, Age > .6)
+
+```
+
+#Humerus
+##%CA
+####Rank & Rainfall
+```{r}
+h_BPR_PCA <- PCA_mcmc(humerus_1, "BPRank") 
+
+h_BPR_PCA
+
+h_MRB_PCA <- PCA_mcmc(humerus_1, "MRB")
+
+h_MRB_PCA
+
+h_BPDD_PCA <- PCA_mcmc(humerus_1, "prop_droughtdays_1year")
+
+h_BPDD_PCA
+
+h_BR_PCA <- PCA_mcmc(humerus_1, "one_year_rain")
+
+h_BR_PCA
+```
+
+Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+
+###Area measurements 
+####Rank
+```{r area}
+
+# Define your response variables and correspondinB predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+h_BPR_area_result_summaries <- area_mcmc_multiple(humerus_1, area_response_vars, BPR_predictor_var)
+
+h_BPR_area_result_summaries
+
+# Call the function
+h_MRB_area_result_summaries <- area_mcmc_multiple(humerus_1, area_response_vars, MRB_predictor_var)
+
+h_MRB_area_result_summaries
+```
+
+####Rain
+```{r area}
+
+# Define your response variables and correspondinB predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+h_BPDD_area_result_summaries <- area_mcmc_multiple(humerus_1, area_response_vars, BPDD_predictor_var)
+
+# Call the function
+h_BR_area_result_summaries <- area_mcmc_multiple(humerus_1, area_response_vars, BR_predictor_var)
+
+h_BR_area_result_summaries
+
+```
+
+##Moment of area measurements
+####Rank
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+h_BPR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(humerus_1, moment2nd_response_vars, BPR_predictor_var)
+
+h_BPR_2ndmoment_result_summaries
+
+# Call the function
+h_MRB_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(humerus_1, moment2nd_response_vars, MRB_predictor_var)
+
+h_MRB_2ndmoment_result_summaries
+```
+
+####Rain
+```{r I & J}
+
+# Define your response variables and correspondinB predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+h_BPDD_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(humerus_1, moment2nd_response_vars, BPDD_predictor_var)
+
+h_BPDD_2ndmoment_result_summaries
+
+# Call the function
+h_BR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(humerus_1, moment2nd_response_vars, BR_predictor_var)
+
+h_BR_2ndmoment_result_summaries
+```
+
+##section moduli
+####Rank
+```{r Z}
+
+# Define your response variables and correspondinB predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+h_BPR_moduli_result_summaries <- moduli_mcmc_multiple(humerus_1, moduli_response_vars, BPR_predictor_var)
+
+h_BPR_moduli_result_summaries
+
+# Call the function
+h_MRB_moduli_result_summaries <- moduli_mcmc_multiple(humerus_1, moduli_response_vars, MRB_predictor_var)
+
+h_MRB_moduli_result_summaries
+```
+
+####Rain
+```{r Z}
+
+# Define your response variables and correspondinB predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+h_BPDD_moduli_result_summaries <- moduli_mcmc_multiple(humerus_1, moduli_response_vars, BPDD_predictor_var)
+
+h_BPDD_moduli_result_summaries
+
+# Call the function
+h_BR_moduli_result_summaries <- moduli_mcmc_multiple(humerus_1, moduli_response_vars, BR_predictor_var)
+
+h_BR_moduli_result_summaries
+```
+
+##DIC Table humerus_1
+```{r DIC table rank & rain Year 1}
+
+dic_table_rank_1 <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rank_1$Model1 <- c(unlist(h_BPR_PCA$DIC),
+                      unlist(h_BPR_area_result_summaries[[1]]$DIC),
+                      unlist(h_BPR_area_result_summaries[[2]]$DIC),
+                      unlist(h_BPR_area_result_summaries[[3]]$DIC),
+                      unlist(h_BPR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(h_BPR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(h_BPR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(h_BPR_moduli_result_summaries[[1]]$DIC),
+                      unlist(h_BPR_moduli_result_summaries[[2]]$DIC),
+                      unlist(h_BPR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rank_1$Model2 <- c(unlist(h_MRB_PCA$DIC),
+                      unlist(h_MRB_area_result_summaries[[1]]$DIC),
+                      unlist(h_MRB_area_result_summaries[[2]]$DIC),
+                      unlist(h_MRB_area_result_summaries[[3]]$DIC),
+                      unlist(h_MRB_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(h_MRB_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(h_MRB_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(h_MRB_moduli_result_summaries[[1]]$DIC),
+                      unlist(h_MRB_moduli_result_summaries[[2]]$DIC),
+                      unlist(h_MRB_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rank_1) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
+
+# Add a new column indicatinB which predictor variable is lower
+dic_table_rank_1$Lower_Predictor <- ifelse(
+  dic_table_rank_1$`Proportional Rank` < dic_table_rank_1$`Ordinal Rank`,
+  "Proportion Rank", "Ordinal Rank"
+)
+
+print(dic_table_rank_1)
+
+
+#write.csv(dic_table_rank_1, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rank_radius1_CSG.csv", row.names=FALSE)
+
+dic_table_rain_1 <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rain_1$Model1 <- c(unlist(h_BR_PCA$DIC),
+                      unlist(h_BR_area_result_summaries[[1]]$DIC),
+                      unlist(h_BR_area_result_summaries[[2]]$DIC),
+                      unlist(h_BR_area_result_summaries[[3]]$DIC),
+                      unlist(h_BR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(h_BR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(h_BR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(h_BR_moduli_result_summaries[[1]]$DIC),
+                      unlist(h_BR_moduli_result_summaries[[2]]$DIC),
+                      unlist(h_BR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rain_1$Model2 <- c(unlist(h_BPDD_PCA$DIC),
+                      unlist(h_BPDD_area_result_summaries[[1]]$DIC),
+                      unlist(h_BPDD_area_result_summaries[[2]]$DIC),
+                      unlist(h_BPDD_area_result_summaries[[3]]$DIC),
+                      unlist(h_BPDD_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(h_BPDD_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(h_BPDD_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(h_BPDD_moduli_result_summaries[[1]]$DIC),
+                      unlist(h_BPDD_moduli_result_summaries[[2]]$DIC),
+                      unlist(h_BPDD_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rain_1) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
+
+# Add a new column indicatinB which predictor variable is lower
+dic_table_rain_1$Lower_Predictor <- ifelse(
+  dic_table_rain_1$`Cumulative Rainfall` < dic_table_rain_1$`Proportion of Drought Days`,
+  "Cumulative Rainfall", "Proportion of Drought Days"
+)
+
+print(dic_table_rain_1) 
+
+#write.csv(dic_table_rain_1, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rain_radius1_CSG.csv", row.names=FALSE)
+
+```
+
+
+#radius
+##Gestation
+###%CA
+####Rank & Rainfall
+```{r}
+r_GPR_PCA <- PCA_mcmc(radius, "GPRank")
+
+r_GPR_PCA
+
+r_MRC_PCA <- PCA_mcmc(radius, "MRC")
+
+r_MRC_PCA
+
+r_GPDD_PCA <- PCA_mcmc(radius, "prop_droughtdays")
+
+r_GPDD_PCA
+
+r_GR_PCA <- PCA_mcmc(radius, "gest_rain")
+
+r_GR_PCA
+```
+
+Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+
+###Area measurements 
+####Rank
+```{r area}
+
+# Define your response variables and corresponding predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+r_GPR_area_result_summaries <- area_mcmc_multiple(radius, area_response_vars, GPR_predictor_var)
+
+r_GPR_area_result_summaries
+
+# Call the function
+r_MRC_area_result_summaries <- area_mcmc_multiple(radius, area_response_vars, MRC_predictor_var)
+
+r_MRC_area_result_summaries
+```
+
+####Rain
+```{r area}
+
+# Define your response variables and corresponding predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+r_GPDD_area_result_summaries <- area_mcmc_multiple(radius, area_response_vars, GPDD_predictor_var)
+
+# Call the function
+r_GR_area_result_summaries <- area_mcmc_multiple(radius, area_response_vars, GR_predictor_var)
+
+r_GR_area_result_summaries
+
+```
+
+###Moment of area measurements
+####Rank
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+r_GPR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(radius, moment2nd_response_vars, GPR_predictor_var)
+
+r_GPR_2ndmoment_result_summaries
+
+# Call the function
+r_MRC_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(radius, moment2nd_response_vars, MRC_predictor_var)
+
+r_MRC_2ndmoment_result_summaries
+```
+
+####Rain
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+r_GPDD_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(radius, moment2nd_response_vars, GPDD_predictor_var)
+
+r_GPDD_2ndmoment_result_summaries
+
+# Call the function
+r_GR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(radius, moment2nd_response_vars, GR_predictor_var)
+
+r_GR_2ndmoment_result_summaries
+```
+
+###section moduli
+####Rank
+```{r Z}
+
+# Define your response variables and corresponding predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+r_GPR_moduli_result_summaries <- moduli_mcmc_multiple(radius, moduli_response_vars, GPR_predictor_var)
+
+r_GPR_moduli_result_summaries
+
+# Call the function
+r_MRC_moduli_result_summaries <- moduli_mcmc_multiple(radius, moduli_response_vars, MRC_predictor_var)
+
+r_MRC_moduli_result_summaries
+```
+
+####Rain
+```{r Z}
+
+# Define your response variables and corresponding predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+r_GPDD_moduli_result_summaries <- moduli_mcmc_multiple(radius, moduli_response_vars, GPDD_predictor_var)
+
+r_GPDD_moduli_result_summaries
+
+# Call the function
+r_GR_moduli_result_summaries <- moduli_mcmc_multiple(radius, moduli_response_vars, GR_predictor_var)
+
+r_GR_moduli_result_summaries
+```
+
+##DIC Table radius
+```{r DIC table rank & rain gestation}
+
+dic_table_rank_r <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rank_r$Model1 <- c(unlist(r_GPR_PCA$DIC),
+                      unlist(r_GPR_area_result_summaries[[1]]$DIC),
+                      unlist(r_GPR_area_result_summaries[[2]]$DIC),
+                      unlist(r_GPR_area_result_summaries[[3]]$DIC),
+                      unlist(r_GPR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(r_GPR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(r_GPR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(r_GPR_moduli_result_summaries[[1]]$DIC),
+                      unlist(r_GPR_moduli_result_summaries[[2]]$DIC),
+                      unlist(r_GPR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rank_r$Model2 <- c(unlist(h_MRC_PCA$DIC),
+                      unlist(r_MRC_area_result_summaries[[1]]$DIC),
+                      unlist(r_MRC_area_result_summaries[[2]]$DIC),
+                      unlist(r_MRC_area_result_summaries[[3]]$DIC),
+                      unlist(r_MRC_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(r_MRC_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(r_MRC_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(r_MRC_moduli_result_summaries[[1]]$DIC),
+                      unlist(r_MRC_moduli_result_summaries[[2]]$DIC),
+                      unlist(r_MRC_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rank_r) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
+
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rank_r$Lower_Predictor <- ifelse(
+  dic_table_rank_r$`Proportional Rank` < dic_table_rank_r$`Ordinal Rank`,
+  "Proportion Rank", "Ordinal Rank"
+)
+
+print(dic_table_rank_r)
+
+
+#write.csv(dic_table_rank_r, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rank_gest_r_CSG.csv", row.names=FALSE)
+
+dic_table_rain_r <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rain_r$Model1 <- c(unlist(r_GR_PCA$DIC),
+                      unlist(r_GR_area_result_summaries[[1]]$DIC),
+                      unlist(r_GR_area_result_summaries[[2]]$DIC),
+                      unlist(r_GR_area_result_summaries[[3]]$DIC),
+                      unlist(r_GR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(r_GR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(r_GR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(r_GR_moduli_result_summaries[[1]]$DIC),
+                      unlist(r_GR_moduli_result_summaries[[2]]$DIC),
+                      unlist(r_GR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rain_r$Model2 <- c(unlist(r_GPDD_PCA$DIC),
+                      unlist(r_GPDD_area_result_summaries[[1]]$DIC),
+                      unlist(r_GPDD_area_result_summaries[[2]]$DIC),
+                      unlist(r_GPDD_area_result_summaries[[3]]$DIC),
+                      unlist(r_GPDD_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(r_GPDD_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(r_GPDD_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(r_GPDD_moduli_result_summaries[[1]]$DIC),
+                      unlist(r_GPDD_moduli_result_summaries[[2]]$DIC),
+                      unlist(r_GPDD_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rain_r) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
+
+#write.csv(dic_table_rain_r, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rain_gest_r_CSG.csv", row.names=FALSE)
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rain_r$Lower_Predictor <- ifelse(
+  dic_table_rain_r$`Cumulative Rainfall` < dic_table_rain_r$`Proportion of Drought Days`,
+  "Cumulative Rainfall", "Proportion of Drought Days"
+)
+
+print(dic_table_rain_r)
+```
+
+
+#Year 1
+
+```{r year 1 subset}
+
+radius_1 <- subset(radius, Age > .6)
+
+```
+
+#radius
+##%CA
+####Rank & Rainfall
+```{r}
+r_BPR_PCA <- PCA_mcmc(radius_1, "BPRank") 
+
+r_BPR_PCA
+
+r_MRB_PCA <- PCA_mcmc(radius_1, "MRB")
+
+r_MRB_PCA
+
+r_BPDD_PCA <- PCA_mcmc(radius_1, "prop_droughtdays_1year")
+
+r_BPDD_PCA
+
+r_BR_PCA <- PCA_mcmc(radius_1, "one_year_rain")
+
+r_BR_PCA
+```
+
+Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+
+###Area measurements 
+####Rank
+```{r area}
+
+# Define your response variables and correspondinB predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+r_BPR_area_result_summaries <- area_mcmc_multiple(radius_1, area_response_vars, BPR_predictor_var)
+
+r_BPR_area_result_summaries
+
+# Call the function
+r_MRB_area_result_summaries <- area_mcmc_multiple(radius_1, area_response_vars, MRB_predictor_var)
+
+r_MRB_area_result_summaries
+```
+
+####Rain
+```{r area}
+
+# Define your response variables and correspondinB predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+r_BPDD_area_result_summaries <- area_mcmc_multiple(radius_1, area_response_vars, BPDD_predictor_var)
+
+# Call the function
+r_BR_area_result_summaries <- area_mcmc_multiple(radius_1, area_response_vars, BR_predictor_var)
+
+r_BR_area_result_summaries
+
+```
+
+##Moment of area measurements
+####Rank
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+r_BPR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(radius_1, moment2nd_response_vars, BPR_predictor_var)
+
+r_BPR_2ndmoment_result_summaries
+
+# Call the function
+r_MRB_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(radius_1, moment2nd_response_vars, MRB_predictor_var)
+
+r_MRB_2ndmoment_result_summaries
+```
+
+####Rain
+```{r I & J}
+
+# Define your response variables and correspondinB predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+r_BPDD_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(radius_1, moment2nd_response_vars, BPDD_predictor_var)
+
+r_BPDD_2ndmoment_result_summaries
+
+# Call the function
+r_BR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(radius_1, moment2nd_response_vars, BR_predictor_var)
+
+r_BR_2ndmoment_result_summaries
+```
+
+##section moduli
+####Rank
+```{r Z}
+
+# Define your response variables and correspondinB predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+r_BPR_moduli_result_summaries <- moduli_mcmc_multiple(radius_1, moduli_response_vars, BPR_predictor_var)
+
+r_BPR_moduli_result_summaries
+
+# Call the function
+r_MRB_moduli_result_summaries <- moduli_mcmc_multiple(radius_1, moduli_response_vars, MRB_predictor_var)
+
+r_MRB_moduli_result_summaries
+```
+
+####Rain
+```{r Z}
+
+# Define your response variables and correspondinB predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+r_BPDD_moduli_result_summaries <- moduli_mcmc_multiple(radius_1, moduli_response_vars, BPDD_predictor_var)
+
+r_BPDD_moduli_result_summaries
+
+# Call the function
+r_BR_moduli_result_summaries <- moduli_mcmc_multiple(radius_1, moduli_response_vars, BR_predictor_var)
+
+r_BR_moduli_result_summaries
+```
+
+##DIC Table radius_1
+```{r DIC table rank & rain Year 1}
+
+dic_table_rank_1 <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rank_1$Model1 <- c(unlist(r_BPR_PCA$DIC),
+                      unlist(r_BPR_area_result_summaries[[1]]$DIC),
+                      unlist(r_BPR_area_result_summaries[[2]]$DIC),
+                      unlist(r_BPR_area_result_summaries[[3]]$DIC),
+                      unlist(r_BPR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(r_BPR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(r_BPR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(r_BPR_moduli_result_summaries[[1]]$DIC),
+                      unlist(r_BPR_moduli_result_summaries[[2]]$DIC),
+                      unlist(r_BPR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rank_1$Model2 <- c(unlist(r_MRB_PCA$DIC),
+                      unlist(r_MRB_area_result_summaries[[1]]$DIC),
+                      unlist(r_MRB_area_result_summaries[[2]]$DIC),
+                      unlist(r_MRB_area_result_summaries[[3]]$DIC),
+                      unlist(r_MRB_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(r_MRB_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(r_MRB_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(r_MRB_moduli_result_summaries[[1]]$DIC),
+                      unlist(r_MRB_moduli_result_summaries[[2]]$DIC),
+                      unlist(r_MRB_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rank_1) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
+
+# Add a new column indicatinB which predictor variable is lower
+dic_table_rank_1$Lower_Predictor <- ifelse(
+  dic_table_rank_1$`Proportional Rank` < dic_table_rank_1$`Ordinal Rank`,
+  "Proportion Rank", "Ordinal Rank"
+)
+
+print(dic_table_rank_1)
+
+
+write.csv(dic_table_rank_1, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rank_radius1_CSG.csv", row.names=FALSE)
+
+dic_table_rain_1 <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rain_1$Model1 <- c(unlist(r_BR_PCA$DIC),
+                      unlist(r_BR_area_result_summaries[[1]]$DIC),
+                      unlist(r_BR_area_result_summaries[[2]]$DIC),
+                      unlist(r_BR_area_result_summaries[[3]]$DIC),
+                      unlist(r_BR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(r_BR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(r_BR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(r_BR_moduli_result_summaries[[1]]$DIC),
+                      unlist(r_BR_moduli_result_summaries[[2]]$DIC),
+                      unlist(r_BR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rain_1$Model2 <- c(unlist(r_BPDD_PCA$DIC),
+                      unlist(r_BPDD_area_result_summaries[[1]]$DIC),
+                      unlist(r_BPDD_area_result_summaries[[2]]$DIC),
+                      unlist(r_BPDD_area_result_summaries[[3]]$DIC),
+                      unlist(r_BPDD_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(r_BPDD_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(r_BPDD_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(r_BPDD_moduli_result_summaries[[1]]$DIC),
+                      unlist(r_BPDD_moduli_result_summaries[[2]]$DIC),
+                      unlist(r_BPDD_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rain_1) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
+
+# Add a new column indicatinB which predictor variable is lower
+dic_table_rain_1$Lower_Predictor <- ifelse(
+  dic_table_rain_1$`Cumulative Rainfall` < dic_table_rain_1$`Proportion of Drought Days`,
+  "Cumulative Rainfall", "Proportion of Drought Days"
+)
+
+print(dic_table_rain_1) 
+
+write.csv(dic_table_rain_1, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rain_radius1_CSG.csv", row.names=FALSE)
+```
+
+
+
+#Femur
+
+##Gestation
+###%CA
+####Rank & Rainfall
+```{r}
+f_GPR_PCA <- PCA_mcmc(femur, "GPRank")
+
+f_GPR_PCA
+
+f_MRC_PCA <- PCA_mcmc(femur, "MRC")
+
+f_MRC_PCA
+
+f_GPDD_PCA <- PCA_mcmc(femur, "prop_droughtdays")
+
+f_GPDD_PCA
+
+f_GR_PCA <- PCA_mcmc(femur, "gest_rain")
+
+f_GR_PCA
+```
+
+Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+
+###Area measurements 
+####Rank
+```{r area}
+
+# Define your response variables and corresponding predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+f_GPR_area_result_summaries <- area_mcmc_multiple(femur, area_response_vars, GPR_predictor_var)
+
+f_GPR_area_result_summaries
+
+# Call the function
+f_MRC_area_result_summaries <- area_mcmc_multiple(femur, area_response_vars, MRC_predictor_var)
+
+f_MRC_area_result_summaries
+```
+
+####Rain
+```{r area}
+
+# Define your response variables and corresponding predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+f_GPDD_area_result_summaries <- area_mcmc_multiple(femur, area_response_vars, GPDD_predictor_var)
+
+# Call the function
+f_GR_area_result_summaries <- area_mcmc_multiple(femur, area_response_vars, GR_predictor_var)
+
+f_GR_area_result_summaries
+
+```
+
+###Moment of area measurements
+####Rank
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+f_GPR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(femur, moment2nd_response_vars, GPR_predictor_var)
+
+f_GPR_2ndmoment_result_summaries
+
+# Call the function
+f_MRC_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(femur, moment2nd_response_vars, MRC_predictor_var)
+
+f_MRC_2ndmoment_result_summaries
+```
+
+####Rain
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+f_GPDD_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(femur, moment2nd_response_vars, GPDD_predictor_var)
+
+f_GPDD_2ndmoment_result_summaries
+
+# Call the function
+f_GR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(femur, moment2nd_response_vars, GR_predictor_var)
+
+f_GR_2ndmoment_result_summaries
+```
+
+###section moduli
+####Rank
+```{r Z}
+
+# Define your response variables and corresponding predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+f_GPR_moduli_result_summaries <- moduli_mcmc_multiple(femur, moduli_response_vars, GPR_predictor_var)
+
+f_GPR_moduli_result_summaries
+
+# Call the function
+f_MRC_moduli_result_summaries <- moduli_mcmc_multiple(femur, moduli_response_vars, MRC_predictor_var)
+
+f_MRC_moduli_result_summaries
+```
+
+####Rain
+```{r Z}
+
+# Define your response variables and corresponding predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+f_GPDD_moduli_result_summaries <- moduli_mcmc_multiple(femur, moduli_response_vars, GPDD_predictor_var)
+
+f_GPDD_moduli_result_summaries
+
+# Call the function
+f_GR_moduli_result_summaries <- moduli_mcmc_multiple(femur, moduli_response_vars, GR_predictor_var)
+
+f_GR_moduli_result_summaries
+```
+
+##DIC Table Femur
+```{r DIC table rank & rain gestation}
+
+dic_table_rank_f <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rank_f$Model1 <- c(unlist(f_GPR_PCA$DIC),
+                      unlist(f_GPR_area_result_summaries[[1]]$DIC),
+                      unlist(f_GPR_area_result_summaries[[2]]$DIC),
+                      unlist(f_GPR_area_result_summaries[[3]]$DIC),
+                      unlist(f_GPR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(f_GPR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(f_GPR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(f_GPR_moduli_result_summaries[[1]]$DIC),
+                      unlist(f_GPR_moduli_result_summaries[[2]]$DIC),
+                      unlist(f_GPR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rank_f$Model2 <- c(unlist(f_MRC_PCA$DIC),
+                      unlist(f_MRC_area_result_summaries[[1]]$DIC),
+                      unlist(f_MRC_area_result_summaries[[2]]$DIC),
+                      unlist(f_MRC_area_result_summaries[[3]]$DIC),
+                      unlist(f_MRC_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(f_MRC_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(f_MRC_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(f_MRC_moduli_result_summaries[[1]]$DIC),
+                      unlist(f_MRC_moduli_result_summaries[[2]]$DIC),
+                      unlist(f_MRC_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rank_f) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
+
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rank_f$Lower_Predictor <- ifelse(
+  dic_table_rank_f$`Proportional Rank` < dic_table_rank_f$`Ordinal Rank`,
+  "Proportion Rank", "Ordinal Rank"
+)
+
+print(dic_table_rank_f)
+
+
+#write.csv(dic_table_rank_f, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rank_gest_f_CSG.csv", row.names=FALSE)
+
+dic_table_rain_f <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rain_f$Model1 <- c(unlist(f_GR_PCA$DIC),
+                      unlist(f_GR_area_result_summaries[[1]]$DIC),
+                      unlist(f_GR_area_result_summaries[[2]]$DIC),
+                      unlist(f_GR_area_result_summaries[[3]]$DIC),
+                      unlist(f_GR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(f_GR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(f_GR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(f_GR_moduli_result_summaries[[1]]$DIC),
+                      unlist(f_GR_moduli_result_summaries[[2]]$DIC),
+                      unlist(f_GR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rain_f$Model2 <- c(unlist(f_GPDD_PCA$DIC),
+                      unlist(f_GPDD_area_result_summaries[[1]]$DIC),
+                      unlist(f_GPDD_area_result_summaries[[2]]$DIC),
+                      unlist(f_GPDD_area_result_summaries[[3]]$DIC),
+                      unlist(f_GPDD_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(f_GPDD_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(f_GPDD_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(f_GPDD_moduli_result_summaries[[1]]$DIC),
+                      unlist(f_GPDD_moduli_result_summaries[[2]]$DIC),
+                      unlist(f_GPDD_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rain_f) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rain_f$Lower_Predictor <- ifelse(
+  dic_table_rain_f$`Cumulative Rainfall` < dic_table_rain_f$`Proportion of Drought Days`,
+  "Cumulative Rainfall", "Proportion of Drought Days"
+)
+
+#write.csv(dic_table_rain_f, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rain_gest_f_CSG.csv", row.names=FALSE)
+
+print(dic_table_rain_f)
+```
+
+
+
+#Year 1
+
+```{r year 1 subset}
+
+femur_1 <- subset(femur, Age > .6)
+
+```
+
+#Femur
+##%CA
+####Rank & Rainfall
+```{r}
+f_BPR_PCA <- PCA_mcmc(femur_1, "BPRank") 
+
+f_BPR_PCA
+
+f_MRB_PCA <- PCA_mcmc(femur_1, "MRB")
+
+f_MRB_PCA
+
+f_BPDD_PCA <- PCA_mcmc(femur_1, "prop_droughtdays_1year")
+
+f_BPDD_PCA
+
+f_BR_PCA <- PCA_mcmc(femur_1, "one_year_rain")
+
+f_BR_PCA
+```
+
+Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+
+###Area measurements 
+####Rank
+```{r area}
+
+# Define your response variables and correspondinB predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+f_BPR_area_result_summaries <- area_mcmc_multiple(femur_1, area_response_vars, BPR_predictor_var)
+
+f_BPR_area_result_summaries
+
+# Call the function
+f_MRB_area_result_summaries <- area_mcmc_multiple(femur_1, area_response_vars, MRB_predictor_var)
+
+f_MRB_area_result_summaries
+```
+
+####Rain
+```{r area}
+
+# Define your response variables and correspondinB predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+f_BPDD_area_result_summaries <- area_mcmc_multiple(femur_1, area_response_vars, BPDD_predictor_var)
+
+# Call the function
+f_BR_area_result_summaries <- area_mcmc_multiple(femur_1, area_response_vars, BR_predictor_var)
+
+f_BR_area_result_summaries
+
+```
+
+##Moment of area measurements
+####Rank
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+f_BPR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(femur_1, moment2nd_response_vars, BPR_predictor_var)
+
+f_BPR_2ndmoment_result_summaries
+
+# Call the function
+f_MRB_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(femur_1, moment2nd_response_vars, MRB_predictor_var)
+
+f_MRB_2ndmoment_result_summaries
+```
+
+####Rain
+```{r I & J}
+
+# Define your response variables and correspondinB predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+f_BPDD_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(femur_1, moment2nd_response_vars, BPDD_predictor_var)
+
+f_BPDD_2ndmoment_result_summaries
+
+# Call the function
+f_BR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(femur_1, moment2nd_response_vars, BR_predictor_var)
+
+f_BR_2ndmoment_result_summaries
+```
+
+##section moduli
+####Rank
+```{r Z}
+
+# Define your response variables and correspondinB predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+f_BPR_moduli_result_summaries <- moduli_mcmc_multiple(femur_1, moduli_response_vars, BPR_predictor_var)
+
+f_BPR_moduli_result_summaries
+
+# Call the function
+f_MRB_moduli_result_summaries <- moduli_mcmc_multiple(femur_1, moduli_response_vars, MRB_predictor_var)
+
+f_MRB_moduli_result_summaries
+```
+
+####Rain
+```{r Z}
+
+# Define your response variables and correspondinB predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+f_BPDD_moduli_result_summaries <- moduli_mcmc_multiple(femur_1, moduli_response_vars, BPDD_predictor_var)
+
+f_BPDD_moduli_result_summaries
+
+# Call the function
+f_BR_moduli_result_summaries <- moduli_mcmc_multiple(femur_1, moduli_response_vars, BR_predictor_var)
+
+f_BR_moduli_result_summaries
+```
+
+##DIC Table femur_1
+```{r DIC table rank & rain Year 1}
+
+dic_table_rank_1 <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rank_1$Model1 <- c(unlist(f_BPR_PCA$DIC),
+                      unlist(f_BPR_area_result_summaries[[1]]$DIC),
+                      unlist(f_BPR_area_result_summaries[[2]]$DIC),
+                      unlist(f_BPR_area_result_summaries[[3]]$DIC),
+                      unlist(f_BPR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(f_BPR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(f_BPR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(f_BPR_moduli_result_summaries[[1]]$DIC),
+                      unlist(f_BPR_moduli_result_summaries[[2]]$DIC),
+                      unlist(f_BPR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rank_1$Model2 <- c(unlist(f_MRB_PCA$DIC),
+                      unlist(f_MRB_area_result_summaries[[1]]$DIC),
+                      unlist(f_MRB_area_result_summaries[[2]]$DIC),
+                      unlist(f_MRB_area_result_summaries[[3]]$DIC),
+                      unlist(f_MRB_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(f_MRB_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(f_MRB_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(f_MRB_moduli_result_summaries[[1]]$DIC),
+                      unlist(f_MRB_moduli_result_summaries[[2]]$DIC),
+                      unlist(f_MRB_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rank_1) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
+
+# Add a new column indicatinB which predictor variable is lower
+dic_table_rank_1$Lower_Predictor <- ifelse(
+  dic_table_rank_1$`Proportional Rank` < dic_table_rank_1$`Ordinal Rank`,
+  "Proportion Rank", "Ordinal Rank"
+)
+
+print(dic_table_rank_1)
+
+
+#write.csv(dic_table_rank_1, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rank_femur1_CSG.csv", row.names=FALSE)
+
+dic_table_rain_1 <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rain_1$Model1 <- c(unlist(f_BR_PCA$DIC),
+                      unlist(f_BR_area_result_summaries[[1]]$DIC),
+                      unlist(f_BR_area_result_summaries[[2]]$DIC),
+                      unlist(f_BR_area_result_summaries[[3]]$DIC),
+                      unlist(f_BR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(f_BR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(f_BR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(f_BR_moduli_result_summaries[[1]]$DIC),
+                      unlist(f_BR_moduli_result_summaries[[2]]$DIC),
+                      unlist(f_BR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rain_1$Model2 <- c(unlist(f_BPDD_PCA$DIC),
+                      unlist(f_BPDD_area_result_summaries[[1]]$DIC),
+                      unlist(f_BPDD_area_result_summaries[[2]]$DIC),
+                      unlist(f_BPDD_area_result_summaries[[3]]$DIC),
+                      unlist(f_BPDD_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(f_BPDD_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(f_BPDD_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(f_BPDD_moduli_result_summaries[[1]]$DIC),
+                      unlist(f_BPDD_moduli_result_summaries[[2]]$DIC),
+                      unlist(f_BPDD_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rain_1) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
+
+# Add a new column indicatinB which predictor variable is lower
+dic_table_rain_1$Lower_Predictor <- ifelse(
+  dic_table_rain_1$`Cumulative Rainfall` < dic_table_rain_1$`Proportion of Drought Days`,
+  "Cumulative Rainfall", "Proportion of Drought Days"
+)
+
+print(dic_table_rain_1) 
+
+#write.csv(dic_table_rain_1, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rain_femur1_CSG.csv", row.names=FALSE)
+```
+
+
+#Tibia
+##Gestation
+####%CA
+#####Rank & Rainfall
+```{r}
+t_GPR_PCA <- PCA_mcmc(tibia, "GPRank")
+
+t_GPR_PCA
+
+t_MRC_PCA <- PCA_mcmc(tibia, "MRC")
+
+t_MRC_PCA
+
+t_GPDD_PCA <- PCA_mcmc(tibia, "prop_droughtdays")
+
+t_GPDD_PCA
+
+t_GR_PCA <- PCA_mcmc(tibia, "gest_rain")
+
+t_GR_PCA
+```
+
+Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+
+####Area measurements 
+#####Rank
+```{r area}
+
+# Define your response variables and corresponding predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+t_GPR_area_result_summaries <- area_mcmc_multiple(tibia, area_response_vars, GPR_predictor_var)
+
+t_GPR_area_result_summaries
+
+# Call the function
+t_MRC_area_result_summaries <- area_mcmc_multiple(tibia, area_response_vars, MRC_predictor_var)
+
+t_MRC_area_result_summaries
+```
+
+#####Rain
+```{r area}
+
+# Define your response variables and corresponding predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+t_GPDD_area_result_summaries <- area_mcmc_multiple(tibia, area_response_vars, GPDD_predictor_var)
+
+# Call the function
+t_GR_area_result_summaries <- area_mcmc_multiple(tibia, area_response_vars, GR_predictor_var)
+
+t_GR_area_result_summaries
+
+```
+
+####Moment of area measurements
+#####Rank
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+t_GPR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(tibia, moment2nd_response_vars, GPR_predictor_var)
+
+t_GPR_2ndmoment_result_summaries
+
+# Call the function
+t_MRC_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(tibia, moment2nd_response_vars, MRC_predictor_var)
+
+t_MRC_2ndmoment_result_summaries
+```
+
+#####Rain
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+t_GPDD_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(tibia, moment2nd_response_vars, GPDD_predictor_var)
+
+t_GPDD_2ndmoment_result_summaries
+
+# Call the function
+t_GR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(tibia, moment2nd_response_vars, GR_predictor_var)
+
+t_GR_2ndmoment_result_summaries
+```
+
+####section moduli
+#####Rank
+```{r Z}
+
+# Define your response variables and corresponding predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+GPR_predictor_var <- "GPRank"
+MRC_predictor_var <- "MRC"
+
+# Call the function
+t_GPR_moduli_result_summaries <- moduli_mcmc_multiple(tibia, moduli_response_vars, GPR_predictor_var)
+
+t_GPR_moduli_result_summaries
+
+# Call the function
+t_MRC_moduli_result_summaries <- moduli_mcmc_multiple(tibia, moduli_response_vars, MRC_predictor_var)
+
+t_MRC_moduli_result_summaries
+```
+
+#####Rain
+```{r Z}
+
+# Define your response variables and corresponding predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+GPDD_predictor_var <- "prop_droughtdays"
+GR_predictor_var <- "gest_rain"
+
+# Call the function
+t_GPDD_moduli_result_summaries <- moduli_mcmc_multiple(tibia, moduli_response_vars, GPDD_predictor_var)
+
+t_GPDD_moduli_result_summaries
+
+# Call the function
+t_GR_moduli_result_summaries <- moduli_mcmc_multiple(tibia, moduli_response_vars, GR_predictor_var)
+
+t_GR_moduli_result_summaries
+```
+
+##DIC Table Tibia
+```{r DIC table rank & rain gestation}
+
+dic_table_rank_t <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rank_t$Model1 <- c(unlist(t_GPR_PCA$DIC),
+                      unlist(t_GPR_area_result_summaries[[1]]$DIC),
+                      unlist(t_GPR_area_result_summaries[[2]]$DIC),
+                      unlist(t_GPR_area_result_summaries[[3]]$DIC),
+                      unlist(t_GPR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(t_GPR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(t_GPR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(t_GPR_moduli_result_summaries[[1]]$DIC),
+                      unlist(t_GPR_moduli_result_summaries[[2]]$DIC),
+                      unlist(t_GPR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rank_t$Model2 <- c(unlist(t_MRC_PCA$DIC),
+                      unlist(t_MRC_area_result_summaries[[1]]$DIC),
+                      unlist(t_MRC_area_result_summaries[[2]]$DIC),
+                      unlist(t_MRC_area_result_summaries[[3]]$DIC),
+                      unlist(t_MRC_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(t_MRC_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(t_MRC_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(t_MRC_moduli_result_summaries[[1]]$DIC),
+                      unlist(t_MRC_moduli_result_summaries[[2]]$DIC),
+                      unlist(t_MRC_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rank_t) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
+
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rank_t$Lower_Predictor <- ifelse(
+  dic_table_rank_t$`Proportional Rank` < dic_table_rank_t$`Ordinal Rank`,
+  "Proportion Rank", "Ordinal Rank"
+)
+
+print(dic_table_rank_t)
+
+
+#write.csv(dic_table_rank_t, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rank_gest_t_CSG.csv", row.names=FALSE)
+
+dic_table_rain_t <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rain_t$Model1 <- c(unlist(t_GR_PCA$DIC),
+                      unlist(t_GR_area_result_summaries[[1]]$DIC),
+                      unlist(t_GR_area_result_summaries[[2]]$DIC),
+                      unlist(t_GR_area_result_summaries[[3]]$DIC),
+                      unlist(t_GR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(t_GR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(t_GR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(t_GR_moduli_result_summaries[[1]]$DIC),
+                      unlist(t_GR_moduli_result_summaries[[2]]$DIC),
+                      unlist(t_GR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rain_t$Model2 <- c(unlist(t_GPDD_PCA$DIC),
+                      unlist(t_GPDD_area_result_summaries[[1]]$DIC),
+                      unlist(t_GPDD_area_result_summaries[[2]]$DIC),
+                      unlist(t_GPDD_area_result_summaries[[3]]$DIC),
+                      unlist(t_GPDD_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(t_GPDD_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(t_GPDD_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(t_GPDD_moduli_result_summaries[[1]]$DIC),
+                      unlist(t_GPDD_moduli_result_summaries[[2]]$DIC),
+                      unlist(t_GPDD_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rain_t) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rain_t$Lower_Predictor <- ifelse(
+  dic_table_rain_t$`Cumulative Rainfall` < dic_table_rain_t$`Proportion of Drought Days`,
+  "Cumulative Rainfall", "Proportion of Drought Days"
+)
+
+#write.csv(dic_table_rain_t, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rain_gest_t_CSG.csv", row.names=FALSE)
+
+print(dic_table_rain_t)
+```
+
+#Year 1
+
+```{r year 1 subset}
+
+tibia_1 <- subset(tibia, Age > .6)
+
+```
+
+#Tibia
+##%CA
+####Rank & Rainfall
+```{r}
+t_BPR_PCA <- PCA_mcmc(tibia_1, "BPRank") 
+
+t_BPR_PCA
+
+t_MRB_PCA <- PCA_mcmc(tibia_1, "MRB")
+
+t_MRB_PCA
+
+t_BPDD_PCA <- PCA_mcmc(tibia_1, "prop_droughtdays_1year")
+
+t_BPDD_PCA
+
+t_BR_PCA <- PCA_mcmc(tibia_1, "one_year_rain")
+
+t_BR_PCA
+```
+
+Not good results for %CA...discuss with Chris on what can and cannot be done with this variable 
+
+###Area measurements 
+####Rank
+```{r area}
+
+# Define your response variables and correspondinB predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+t_BPR_area_result_summaries <- area_mcmc_multiple(tibia_1, area_response_vars, BPR_predictor_var)
+
+t_BPR_area_result_summaries
+
+# Call the function
+t_MRB_area_result_summaries <- area_mcmc_multiple(tibia_1, area_response_vars, MRB_predictor_var)
+
+t_MRB_area_result_summaries
+```
+
+####Rain
+```{r area}
+
+# Define your response variables and correspondinB predictor variable
+area_response_vars <- c("TA", "MA", "CA")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+t_BPDD_area_result_summaries <- area_mcmc_multiple(tibia_1, area_response_vars, BPDD_predictor_var)
+
+# Call the function
+t_BR_area_result_summaries <- area_mcmc_multiple(tibia_1, area_response_vars, BR_predictor_var)
+
+t_BR_area_result_summaries
+
+```
+
+##Moment of area measurements
+####Rank
+```{r I & J}
+
+# Define your response variables and corresponding predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+t_BPR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(tibia_1, moment2nd_response_vars, BPR_predictor_var)
+
+t_BPR_2ndmoment_result_summaries
+
+# Call the function
+t_MRB_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(tibia_1, moment2nd_response_vars, MRB_predictor_var)
+
+t_MRB_2ndmoment_result_summaries
+```
+
+####Rain
+```{r I & J}
+
+# Define your response variables and correspondinB predictor variable
+moment2nd_response_vars <- c("Ix", "Iy", "J")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+t_BPDD_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(tibia_1, moment2nd_response_vars, BPDD_predictor_var)
+
+t_BPDD_2ndmoment_result_summaries
+
+# Call the function
+t_BR_2ndmoment_result_summaries <- moment2nd_mcmc_multiple(tibia_1, moment2nd_response_vars, BR_predictor_var)
+
+t_BR_2ndmoment_result_summaries
+```
+
+##section moduli
+####Rank
+```{r Z}
+
+# Define your response variables and correspondinB predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+BPR_predictor_var <- "BPRank"
+MRB_predictor_var <- "MRB"
+
+# Call the function
+t_BPR_moduli_result_summaries <- moduli_mcmc_multiple(tibia_1, moduli_response_vars, BPR_predictor_var)
+
+t_BPR_moduli_result_summaries
+
+# Call the function
+t_MRB_moduli_result_summaries <- moduli_mcmc_multiple(tibia_1, moduli_response_vars, MRB_predictor_var)
+
+t_MRB_moduli_result_summaries
+```
+
+####Rain
+```{r Z}
+
+# Define your response variables and correspondinB predictor variable
+moduli_response_vars <- c("Zx", "Zy", "Zp")
+BPDD_predictor_var <- "prop_droughtdays_1year"
+BR_predictor_var <- "one_year_rain"
+
+# Call the function
+t_BPDD_moduli_result_summaries <- moduli_mcmc_multiple(tibia_1, moduli_response_vars, BPDD_predictor_var)
+
+t_BPDD_moduli_result_summaries
+
+# Call the function
+t_BR_moduli_result_summaries <- moduli_mcmc_multiple(tibia_1, moduli_response_vars, BR_predictor_var)
+
+t_BR_moduli_result_summaries
+```
+
+##DIC Table tibia_1
+```{r DIC table rank & rain Year 1}
+
+dic_table_rank_1 <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rank_1$Model1 <- c(unlist(t_BPR_PCA$DIC),
+                      unlist(t_BPR_area_result_summaries[[1]]$DIC),
+                      unlist(t_BPR_area_result_summaries[[2]]$DIC),
+                      unlist(t_BPR_area_result_summaries[[3]]$DIC),
+                      unlist(t_BPR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(t_BPR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(t_BPR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(t_BPR_moduli_result_summaries[[1]]$DIC),
+                      unlist(t_BPR_moduli_result_summaries[[2]]$DIC),
+                      unlist(t_BPR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rank_1$Model2 <- c(unlist(t_MRB_PCA$DIC),
+                      unlist(t_MRB_area_result_summaries[[1]]$DIC),
+                      unlist(t_MRB_area_result_summaries[[2]]$DIC),
+                      unlist(t_MRB_area_result_summaries[[3]]$DIC),
+                      unlist(t_MRB_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(t_MRB_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(t_MRB_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(t_MRB_moduli_result_summaries[[1]]$DIC),
+                      unlist(t_MRB_moduli_result_summaries[[2]]$DIC),
+                      unlist(t_MRB_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rank_1) <- c("Geometric Properties", "Proportional Rank", "Ordinal Rank")
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rank_1$Lower_Predictor <- ifelse(
+  dic_table_rank_1$`Proportional Rank` < dic_table_rank_1$`Ordinal Rank`,
+  "Proportion Rank", "Ordinal Rank"
+)
+
+print(dic_table_rank_1)
+
+
+#write.csv(dic_table_rank_1, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rank_tibia1_CSG.csv", row.names=FALSE)
+
+dic_table_rain_1 <- data.frame(
+  Bone = c("%CA", "TA", "MA", "CA", "Ix", "Iy", "J", "Zx", "Zy", "Zp"),
+  Model1 = NA,
+  Model2 = NA
+)
+
+# Retrieve and store the DIC values for each model and bone
+dic_table_rain_1$Model1 <- c(unlist(t_BR_PCA$DIC),
+                      unlist(t_BR_area_result_summaries[[1]]$DIC),
+                      unlist(t_BR_area_result_summaries[[2]]$DIC),
+                      unlist(t_BR_area_result_summaries[[3]]$DIC),
+                      unlist(t_BR_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(t_BR_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(t_BR_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(t_BR_moduli_result_summaries[[1]]$DIC),
+                      unlist(t_BR_moduli_result_summaries[[2]]$DIC),
+                      unlist(t_BR_moduli_result_summaries[[3]]$DIC)
+                      )
+
+dic_table_rain_1$Model2 <- c(unlist(t_BPDD_PCA$DIC),
+                      unlist(t_BPDD_area_result_summaries[[1]]$DIC),
+                      unlist(t_BPDD_area_result_summaries[[2]]$DIC),
+                      unlist(t_BPDD_area_result_summaries[[3]]$DIC),
+                      unlist(t_BPDD_2ndmoment_result_summaries[[1]]$DIC),
+                      unlist(t_BPDD_2ndmoment_result_summaries[[2]]$DIC),
+                      unlist(t_BPDD_2ndmoment_result_summaries[[3]]$DIC),
+                      unlist(t_BPDD_moduli_result_summaries[[1]]$DIC),
+                      unlist(t_BPDD_moduli_result_summaries[[2]]$DIC),
+                      unlist(t_BPDD_moduli_result_summaries[[3]]$DIC)
+                      )
+
+colnames(dic_table_rain_1) <- c("Geometric Properties", "Cumulative Rainfall", "Proportion of Drought Days")
+
+# Add a new column indicating which predictor variable is lower
+dic_table_rain_1$Lower_Predictor <- ifelse(
+  dic_table_rain_1$`Cumulative Rainfall` < dic_table_rain_1$`Proportion of Drought Days`,
+  "Cumulative Rainfall", "Proportion of Drought Days"
+)
+
+print(dic_table_rain_1) 
+
+#write.csv(dic_table_rain_1, "C:/Users/ktuos/Desktop/ABRP Excel Files/dic_table_rain_tibia1_CSG.csv", row.names=FALSE)
+```
+
+
